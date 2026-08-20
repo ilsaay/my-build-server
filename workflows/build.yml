@@ -1,0 +1,62 @@
+name: Free Ubuntu Build Server
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+
+    steps:
+
+    - name: Download source
+      uses: actions/checkout@v4
+
+
+    - name: Show system
+      run: |
+        uname -a
+        lscpu
+        free -h
+
+
+    - name: Install Docker
+      run: |
+        docker --version
+
+
+    - name: Run Docker Build
+      run: |
+
+        docker run --rm \
+        -v $PWD:/work \
+        ubuntu:22.04 \
+        bash -c "
+        
+        apt update
+        
+        apt install -y \
+        git \
+        gcc \
+        g++ \
+        make \
+        cmake \
+        python3 \
+        python3-pip \
+        wget \
+        curl
+        
+        cd /work
+        
+        echo Build Start
+        
+        ls -la
+        
+        "
