@@ -1,4 +1,4 @@
-name: Build TUIC v2 server
+name: Build TUIC v2 musl static
 
 on:
   workflow_dispatch:
@@ -12,40 +12,33 @@ jobs:
         run: |
           wget https://github.com/tuic-protocol/tuic/archive/refs/tags/0.2.2.zip
           unzip 0.2.2.zip
-          cd tuic-0.2.2
-          
-          echo "=== Source structure ==="
-          ls -la
-          find . -name "*.rs" -type f
-          
-          echo "=== Check for suspicious code ==="
-          grep -r "backdoor\|shell\|exec\|command\|reverse" --include="*.rs" . | grep -v "test" || true
 
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-          target: x86_64-unknown-linux-gnu
+          target: x86_64-unknown-linux-musl
           override: true
 
-      - name: Build TUIC server
+      - name: Install musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build static
         run: |
           cd tuic-0.2.2
-          cargo build --release --bin tuic-server
+          cargo build --release --target x86_64-unknown-linux-musl --bin tuic-server
           
-          echo "=== Build complete ==="
-          ls -lh target/release/tuic-server
-          file target/release/tuic-server
+          echo "=== Verify static ==="
+          ldd target/x86_64-unknown-linux-musl/release/tuic-server || true
+          file target/x86_64-unknown-linux-musl/release/tuic-server
           
-          # 复制到 dist 目录
           mkdir -p dist
-          cp target/release/tuic-server dist/
-          
-          # 检查二进制
-          strings dist/tuic-server | grep -iE "backdoor|shell|exec|reverse|bind" | head -20 || true
+          cp target/x86_64-unknown-linux-musl/release/tuic-server dist/
 
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: tuic-server-linux-amd64
+          name: tuic-server-static
           path: tuic-0.2.2/dist/tuic-server
