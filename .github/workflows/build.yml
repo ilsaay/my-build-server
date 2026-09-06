@@ -19,9 +19,6 @@ jobs:
           
           echo "=== Check for suspicious code ==="
           grep -rE "backdoor|shell|exec|command|reverse|exploit|bind_shell|remote_access" --include="*.rs" . || echo "No suspicious code found"
-          
-          echo "=== Check dependencies ==="
-          cat Cargo.toml
 
       - name: Install Rust 1.65.0
         uses: actions-rs/toolchain@v1
@@ -35,19 +32,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      - name: Configure cargo mirror
+      - name: Configure cargo mirror (non-sparse)
         run: |
           mkdir -p ~/.cargo
           cat > ~/.cargo/config.toml << 'EOF'
           [source.crates-io]
-          replace-with = 'rsproxy-sparse'
+          replace-with = 'rsproxy'
           
-          [source.rsproxy-sparse]
-          registry = "sparse+https://rsproxy.cn/index/"
+          [source.rsproxy]
+          registry = "https://rsproxy.cn/crates.io-index"
           
           [net]
           git-fetch-with-cli = true
           EOF
+          
+          echo "=== Cargo config ==="
+          cat ~/.cargo/config.toml
 
       - name: Build static server only
         run: |
