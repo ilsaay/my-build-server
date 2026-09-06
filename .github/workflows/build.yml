@@ -1,4 +1,4 @@
-name: Build sing-box tuic only
+name: Build sing-box tuic only no-geo
 
 on:
   workflow_dispatch:
@@ -13,9 +13,6 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
-          - goos: linux
-            goarch: arm
-            goarm: "7"
     
     steps:
       - uses: actions/checkout@v4
@@ -27,22 +24,29 @@ jobs:
         with:
           go-version: '1.19'
 
+      - name: Remove geo databases
+        run: |
+          # 找到并删除嵌入的数据库文件
+          find . -path "*/geoip*" -name "*.db" -type f -delete
+          find . -path "*/geosite*" -name "*.db" -type f -delete
+          # 修改 embed 指令
+          grep -rl "go:embed" --include="*.go" . | xargs sed -i 's|//go:embed.*||g'
+
       - name: Build TUIC only
         env:
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
         run: |
           mkdir -p dist
           go build \
             -trimpath \
             -ldflags "-s -w -buildid=" \
             -tags "with_quic" \
-            -o dist/sing-box-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }} \
+            -o dist/sing-box-${{ matrix.goos }}-${{ matrix.goarch }} \
             ./cmd/sing-box
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sing-box-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
+          name: sing-box-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/sing-box-*
