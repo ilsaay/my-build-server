@@ -1,4 +1,4 @@
-name: Build sing-box tuic only no-geo
+name: Build sing-box tuic amd64
 
 on:
   workflow_dispatch:
@@ -6,13 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-          - goos: linux
-            goarch: arm64
     
     steps:
       - uses: actions/checkout@v4
@@ -26,27 +19,37 @@ jobs:
 
       - name: Remove geo databases
         run: |
-          # 找到并删除嵌入的数据库文件
-          find . -path "*/geoip*" -name "*.db" -type f -delete
-          find . -path "*/geosite*" -name "*.db" -type f -delete
-          # 修改 embed 指令
-          grep -rl "go:embed" --include="*.go" . | xargs sed -i 's|//go:embed.*||g'
+          # 删除嵌入的数据库文件
+          find . -path "*/geoip*" -name "*.db" -type f -delete 2>/dev/null || true
+          find . -path "*/geosite*" -name "*.db" -type f -delete 2>/dev/null || true
+          
+          # 修改 embed 指令（如果有的话）
+          if grep -rl "go:embed" --include="*.go" . > /dev/null 2>&1; then
+            grep -rl "go:embed" --include="*.go" . | xargs sed -i 's|//go:embed.*||g'
+          fi
+          
+          echo "Geo databases removed"
 
-      - name: Build TUIC only
+      - name: Build TUIC amd64
         env:
           CGO_ENABLED: 0
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: linux
+          GOARCH: amd64
         run: |
           mkdir -p dist
           go build \
             -trimpath \
             -ldflags "-s -w -buildid=" \
             -tags "with_quic" \
-            -o dist/sing-box-${{ matrix.goos }}-${{ matrix.goarch }} \
+            -o dist/sing-box-linux-amd64 \
             ./cmd/sing-box
+          
+          # 显示编译结果
+          ls -lh dist/
+          file dist/sing-box-linux-amd64
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: sing-box-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/sing-box-*
+          name: sing-box-linux-amd64
+          path: dist/sing-box-linux-amd64
