@@ -1,44 +1,67 @@
-name: Build TUIC v2 musl static
+name: Build TUIC 0.8.1 static for Debian 9
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     
     steps:
       - name: Download TUIC source
         run: |
-          wget https://github.com/tuic-protocol/tuic/archive/refs/tags/0.2.2.zip
-          unzip 0.2.2.zip
+          wget https://github.com/tuic-protocol/tuic/archive/refs/tags/0.8.1.zip
+          unzip 0.8.1.zip
+          cd tuic-0.8.1
+          
+          echo "=== Source files ==="
+          find . -name "*.rs" -type f
+          
+          echo "=== Security check ==="
+          grep -rE "backdoor|shell|exec|command|reverse|exploit" --include="*.rs" . || echo "No suspicious code"
 
-      - name: Install Rust
+      - name: Install Rust 1.60.0
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.60.0
           target: x86_64-unknown-linux-musl
           override: true
+          components: rustfmt, clippy
 
-      - name: Install musl
+      - name: Install musl tools
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      - name: Build static
+      - name: Build static server only
         run: |
-          cd tuic-0.2.2
+          cd tuic-0.8.1
+          
+          # 验证 Rust 版本
+          rustc --version
+          cargo --version
+          
+          # 只编译服务端，静态链接 musl
           cargo build --release --target x86_64-unknown-linux-musl --bin tuic-server
           
-          echo "=== Verify static ==="
-          ldd target/x86_64-unknown-linux-musl/release/tuic-server || true
-          file target/x86_64-unknown-linux-musl/release/tuic-server
+          echo "=== Build complete ==="
+          ls -lh target/x86_64-unknown-linux-musl/release/tuic-server
           
+          echo "=== Verify static ==="
+          file target/x86_64-unknown-linux-musl/release/tuic-server
+          ldd target/x86_64-unknown-linux-musl/release/tuic-server || true
+          
+          # 复制到 dist
           mkdir -p dist
           cp target/x86_64-unknown-linux-musl/release/tuic-server dist/
+          
+          # 压缩
+          cd dist
+          tar -czf tuic-server-0.8.1-linux-amd64-static.tar.gz tuic-server
+          ls -lh
 
-      - name: Upload
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tuic-server-static
-          path: tuic-0.2.2/dist/tuic-server
+          name: tuic-server-0.8.1-static
+          path: tuic-0.8.1/dist/tuic-server-0.8.1-linux-amd64-static.tar.gz
