@@ -1,4 +1,4 @@
-name: Build sing-box tuic amd64 no-geo
+name: Build sing-box TUIC only v2
 
 on:
   workflow_dispatch:
@@ -8,60 +8,27 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout sing-box
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
           ref: v1.2.7
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.19'
+          go-version: '1.20'
 
-      - name: Remove geo databases
+      - name: Check TUIC source
         run: |
-          # 显示所有 .db 文件
-          echo "=== All .db files ==="
-          find . -name "*.db" -type f -exec ls -lh {} \;
+          # 查看 TUIC 相关的源文件
+          find . -path "*tuic*" -type f | head -20
           
-          # 显示所有 go:embed 指令
-          echo "=== All go:embed directives ==="
-          grep -r "go:embed" --include="*.go" . || true
+          # 查看 TUIC 的 build tags
+          grep -r "go:build" --include="*.go" . | grep -i tuic
           
-          # 删除所有 .db 文件
-          find . -name "*.db" -type f -delete
-          
-          # 找到包含 go:embed 的文件并显示内容
-          echo "=== Files with go:embed ==="
-          grep -rl "go:embed" --include="*.go" . || true
-          
-          # 显示 geoip 相关 go 文件
-          echo "=== GeoIP Go files ==="
-          find . -path "*geoip*" -name "*.go" -type f -exec echo {} \;
-          
-          echo "=== GeoSite Go files ==="
-          find . -path "*geosite*" -name "*.go" -type f -exec echo {} \;
+          # 查看 TUIC 的 package 声明
+          find . -path "*tuic*" -name "*.go" -exec head -5 {} \;
 
-      - name: Modify geo source files
-        run: |
-          # 找到所有包含 go:embed 的文件
-          EMBED_FILES=$(grep -rl "go:embed" --include="*.go" . || true)
-          
-          if [ -n "$EMBED_FILES" ]; then
-            echo "Found embed files:"
-            echo "$EMBED_FILES"
-            
-            for file in $EMBED_FILES; do
-              echo "=== Processing: $file ==="
-              cat "$file"
-              echo "---"
-            done
-          else
-            echo "No embed files found"
-          fi
-
-      - name: Build TUIC amd64
+      - name: Build with correct tags
         env:
           CGO_ENABLED: 0
           GOOS: linux
@@ -69,35 +36,17 @@ jobs:
         run: |
           mkdir -p dist
           
-          # 尝试编译
+          # 尝试不同的 tags 组合
           go build \
             -trimpath \
             -ldflags "-s -w -buildid=" \
-            -tags "with_quic" \
+            -tags "with_quic,with_utls" \
             -o dist/sing-box-linux-amd64 \
             ./cmd/sing-box
           
-          # 如果编译成功
-          if [ -f dist/sing-box-linux-amd64 ]; then
-            echo "=== Build successful ==="
-            ls -lh dist/
-            file dist/sing-box-linux-amd64
-          else
-            echo "=== Build failed, trying without geo removal ==="
-            # 恢复数据库（如果删除导致失败）
-            git checkout -- .
-            
-            # 重新编译
-            go build \
-              -trimpath \
-              -ldflags "-s -w -buildid=" \
-              -tags "with_quic" \
-              -o dist/sing-box-linux-amd64 \
-              ./cmd/sing-box
-            
-            echo "=== Built with geo databases ==="
-            ls -lh dist/
-          fi
+          echo "=== Build complete ==="
+          ls -lh dist/
+          ./dist/sing-box-linux-amd64 version
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
