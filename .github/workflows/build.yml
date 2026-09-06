@@ -1,4 +1,4 @@
-name: Build TUIC 0.8.1 static for Debian 9
+name: Build TUIC v5 server static for Debian 9
 
 on:
   workflow_dispatch:
@@ -8,22 +8,25 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Download TUIC source
+      - name: Download TUIC v5 source
         run: |
-          wget https://github.com/tuic-protocol/tuic/archive/refs/tags/0.8.1.zip
-          unzip 0.8.1.zip
-          cd tuic-0.8.1
+          wget https://github.com/tuic-protocol/tuic/archive/refs/tags/tuic-server-1.0.0.zip
+          unzip tuic-server-1.0.0.zip
+          cd tuic-tuic-server-1.0.0
           
-          echo "=== Source files ==="
-          find . -name "*.rs" -type f
+          echo "=== Source structure ==="
+          find . -name "*.rs" -type f | head -30
           
-          echo "=== Security check ==="
-          grep -rE "backdoor|shell|exec|command|reverse|exploit" --include="*.rs" . || echo "No suspicious code"
+          echo "=== Check for suspicious code ==="
+          grep -rE "backdoor|shell|exec|command|reverse|exploit|bind_shell|remote_access" --include="*.rs" . || echo "No suspicious code found"
+          
+          echo "=== Check dependencies ==="
+          cat Cargo.toml
 
-      - name: Install Rust stable
+      - name: Install Rust 1.60.1
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.60.1
           target: x86_64-unknown-linux-musl
           override: true
 
@@ -45,15 +48,12 @@ jobs:
           [net]
           git-fetch-with-cli = true
           EOF
-          
-          echo "=== Cargo config ==="
-          cat ~/.cargo/config.toml
 
       - name: Build static server only
         run: |
-          cd tuic-0.8.1
+          cd tuic-tuic-server-1.0.0
           
-          # 验证 Rust 版本
+          echo "=== Rust version ==="
           rustc --version
           cargo --version
           
@@ -67,17 +67,20 @@ jobs:
           file target/x86_64-unknown-linux-musl/release/tuic-server
           ldd target/x86_64-unknown-linux-musl/release/tuic-server || true
           
+          echo "=== Check binary ==="
+          strings target/x86_64-unknown-linux-musl/release/tuic-server | grep -iE "backdoor|shell|exec|reverse|bind" | head -10 || echo "Clean"
+          
           # 复制到 dist
           mkdir -p dist
           cp target/x86_64-unknown-linux-musl/release/tuic-server dist/
           
           # 压缩
           cd dist
-          tar -czf tuic-server-0.8.1-linux-amd64-static.tar.gz tuic-server
+          tar -czf tuic-server-1.0.0-linux-amd64-static.tar.gz tuic-server
           ls -lh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tuic-server-0.8.1-static
-          path: tuic-0.8.1/dist/tuic-server-0.8.1-linux-amd64-static.tar.gz
+          name: tuic-server-1.0.0-static
+          path: tuic-tuic-server-1.0.0/dist/tuic-server-1.0.0-linux-amd64-static.tar.gz
