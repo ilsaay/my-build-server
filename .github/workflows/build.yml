@@ -1,4 +1,4 @@
-name: Build sing-box TUIC only
+name: Build TUIC v2 server
 
 on:
   workflow_dispatch:
@@ -8,50 +8,44 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: SagerNet/sing-box
-          ref: v1.2.7
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.20'
-
-      - name: Check TUIC source
+      - name: Download TUIC source
         run: |
-          # 查看 TUIC 相关的源文件（允许失败）
-          find . -path "*tuic*" -type f | head -20 || true
+          wget https://github.com/tuic-protocol/tuic/archive/refs/tags/0.2.2.zip
+          unzip 0.2.2.zip
+          cd tuic-0.2.2
           
-          # 查看 TUIC 的 build tags（允许失败）
-          grep -r "go:build" --include="*.go" . | grep -i tuic || true
+          echo "=== Source structure ==="
+          ls -la
+          find . -name "*.rs" -type f
           
-          # 查看 TUIC 的 package 声明（允许失败）
-          find . -path "*tuic*" -name "*.go" -exec head -5 {} \; || true
-          
-          echo "=== Check complete ==="
+          echo "=== Check for suspicious code ==="
+          grep -r "backdoor\|shell\|exec\|command\|reverse" --include="*.rs" . | grep -v "test" || true
 
-      - name: Build with correct tags
-        env:
-          CGO_ENABLED: 0
-          GOOS: linux
-          GOARCH: amd64
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-gnu
+          override: true
+
+      - name: Build TUIC server
         run: |
-          mkdir -p dist
-          
-          # 尝试不同的 tags 组合
-          go build \
-            -trimpath \
-            -ldflags "-s -w -buildid=" \
-            -tags "with_quic,with_utls" \
-            -o dist/sing-box-linux-amd64 \
-            ./cmd/sing-box
+          cd tuic-0.2.2
+          cargo build --release --bin tuic-server
           
           echo "=== Build complete ==="
-          ls -lh dist/
-          ./dist/sing-box-linux-amd64 version
+          ls -lh target/release/tuic-server
+          file target/release/tuic-server
+          
+          # 复制到 dist 目录
+          mkdir -p dist
+          cp target/release/tuic-server dist/
+          
+          # 检查二进制
+          strings dist/tuic-server | grep -iE "backdoor|shell|exec|reverse|bind" | head -20 || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sing-box-linux-amd64
-          path: dist/sing-box-linux-amd64
+          name: tuic-server-linux-amd64
+          path: tuic-0.2.2/dist/tuic-server
