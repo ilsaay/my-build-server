@@ -1,4 +1,4 @@
-name: Build FFmpeg 4.0.0 for Windows
+name: Build FFmpeg 4.0 for Windows
 
 on:
   workflow_dispatch: # 支持手动触发
@@ -25,11 +25,11 @@ jobs:
           bzip2 \
           mingw-w64
 
-    - name: Download FFmpeg 4.0.0 Source
+    - name: Download FFmpeg 4.0 Source
       run: |
-        wget https://ffmpeg.org/releases/ffmpeg-4.0.0.tar.bz2
-        tar -xjf ffmpeg-4.0.0.tar.bz2
-        mv ffmpeg-4.0.0 ffmpeg-src
+        wget https://ffmpeg.org/releases/ffmpeg-4.0.tar.bz2
+        tar -xjf ffmpeg-4.0.tar.bz2
+        mv ffmpeg-4.0 ffmpeg-src
 
     - name: Configure FFmpeg
       run: |
@@ -59,7 +59,6 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p ffmpeg-win64
-        # 复制生成的可执行文件和动态库
         cp -r dist/bin/*.exe ffmpeg-win64/
         cp -r dist/bin/*.dll ffmpeg-win64/
         cp -r dist/include ffmpeg-win64/
@@ -68,5 +67,5 @@ jobs:
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ffmpeg-4.0.0-windows-x64
+        name: ffmpeg-4.0-windows-x64
         path: ffmpeg-win64/
