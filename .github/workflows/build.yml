@@ -5,11 +5,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  workflow_dispatch:   # 支持手动触发
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04   # 使用 Ubuntu 22.04，软件源中有 libmfx-dev
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
@@ -19,33 +19,32 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential yasm nasm cmake git pkg-config \
-            libx264-dev \          # 软件 H.264 编码器（用于备用，可注释掉）
-            libmp3lame-dev \       # MP3 编码库（软件）
-            libfdk-aac-dev \       # AAC 编码库（软件，可选）
-            libvorbis-dev \        # 如果需要
-            libopus-dev \
-            libmfx-dev \           # Intel QSV（旧版 Media SDK）
-            libva-dev \            # VAAPI（AMD/Intel）
-            libdrm-dev \           # VAAPI 依赖
-            libvdpau-dev           # 可选，VAAPI 后端
+            build-essential \
+            yasm \
+            nasm \
+            cmake \
+            git \
+            pkg-config \
+            libmp3lame-dev \
+            libfdk-aac-dev \
+            libmfx-dev \
+            libva-dev \
+            libdrm-dev \
+            libvdpau-dev
 
       - name: Download FFmpeg 4.0.0 source
         run: |
           wget https://ffmpeg.org/releases/ffmpeg-4.0.0.tar.bz2
           tar -xjf ffmpeg-4.0.0.tar.bz2
-          cd ffmpeg-4.0.0
 
       - name: Configure FFmpeg
         working-directory: ./ffmpeg-4.0.0
         run: |
           ./configure \
             --disable-everything \
-            \
             --disable-network \
             --disable-protocols \
             --enable-protocol=file \
-            \
             --disable-decoders \
             --enable-decoder=h264 \
             --enable-decoder=mp3 \
@@ -56,19 +55,14 @@ jobs:
             --enable-decoder=pcm_s16le \
             --enable-decoder=pcm_s24le \
             --enable-decoder=pcm_f32le \
-            \
             --disable-encoders \
-            --enable-encoder=h264_qsv \      # Intel QSV 硬件编码
-            --enable-encoder=h264_vaapi \    # VAAPI 硬件编码（AMD/Intel）
+            --enable-encoder=h264_qsv \
+            --enable-encoder=h264_vaapi \
             --enable-encoder=mp3 \
             --enable-encoder=mp2 \
             --enable-encoder=aac \
             --enable-encoder=pcm_s16le \
             --enable-encoder=flac \
-            # 如果需 NVIDIA，取消下面注释并确保 CUDA 环境已安装
-            # --enable-encoder=h264_nvenc \
-            # --enable-cuda --enable-cuvid --enable-nvenc --enable-nvdec --enable-libnpp \
-            \
             --disable-demuxers \
             --enable-demuxer=h264 \
             --enable-demuxer=mov \
@@ -78,7 +72,6 @@ jobs:
             --enable-demuxer=aac \
             --enable-demuxer=wav \
             --enable-demuxer=flac \
-            \
             --disable-muxers \
             --enable-muxer=h264 \
             --enable-muxer=mp4 \
@@ -88,22 +81,18 @@ jobs:
             --enable-muxer=aac \
             --enable-muxer=wav \
             --enable-muxer=flac \
-            \
             --disable-parsers \
             --enable-parser=h264 \
             --enable-parser=mpegaudio \
             --enable-parser=aac \
             --enable-parser=flac \
-            \
             --disable-bsfs \
             --enable-bsf=h264_mp4toannexb \
-            \
             --disable-filters \
             --disable-avdevice \
             --disable-swscale \
             --disable-avfilter \
             --disable-postproc \
-            \
             --disable-ffplay \
             --disable-ffprobe \
             --disable-doc \
@@ -111,25 +100,20 @@ jobs:
             --disable-manpages \
             --disable-podpages \
             --disable-txtpages \
-            \
             --disable-runtime-cpudetect \
             --enable-pic \
             --enable-shared \
-            \
             --extra-cflags="-O2 -pipe" \
-            \
             --enable-gpl \
             --enable-nonfree \
-            --enable-libmfx \          # Intel QSV（旧版 Media SDK）
-            --enable-vaapi             # VAAPI 硬件加速
-            # 如需 NVIDIA，添加：
-            # --extra-cflags="-I/usr/local/cuda/include" \
-            # --extra-ldflags="-L/usr/local/cuda/lib64"
+            --enable-libmfx \
+            --enable-vaapi \
+            --enable-libmp3lame \
+            --enable-libfdk-aac
 
       - name: Build FFmpeg
         working-directory: ./ffmpeg-4.0.0
-        run: |
-          make -j$(nproc)
+        run: make -j$(nproc)
 
       - name: Install to temporary directory
         working-directory: ./ffmpeg-4.0.0
