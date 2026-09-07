@@ -32,10 +32,9 @@ jobs:
             libdrm-dev \
             libvdpau-dev
 
-      - name: Download FFmpeg 4.0.0 source
+      - name: Clone FFmpeg 4.0.0 source (tag n4.0)
         run: |
-          wget https://ffmpeg.org/releases/ffmpeg-4.0.0.tar.bz2
-          tar -xjf ffmpeg-4.0.0.tar.bz2
+          git clone --branch n4.0 --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-4.0.0
 
       - name: Configure FFmpeg
         working-directory: ./ffmpeg-4.0.0
