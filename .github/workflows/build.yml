@@ -1,132 +1,72 @@
-name: Build FFmpeg 4.0.0 for Windows x64
+name: Build FFmpeg 4.0.0 for Windows
 
 on:
+  workflow_dispatch: # 支持手动触发
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ main, master ]
 
 jobs:
-  build-windows-cross:
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Install cross-compilation toolchain and deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            yasm \
-            nasm \
-            cmake \
-            git \
-            pkg-config \
-            gcc-mingw-w64-x86-64 \
-            g++-mingw-w64-x86-64 \
-            mingw-w64-tools
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          yasm \
+          nasm \
+          pkg-config \
+          wget \
+          bzip2 \
+          mingw-w64
 
-      - name: Clone FFmpeg 4.0.0 source (tag n4.0.0)
-        run: |
-          git clone --branch n4.0.0 --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-4.0.0 || \
-          git clone --branch n4.0 --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-4.0.0
+    - name: Download FFmpeg 4.0.0 Source
+      run: |
+        wget https://ffmpeg.org/releases/ffmpeg-4.0.0.tar.bz2
+        tar -xjf ffmpeg-4.0.0.tar.bz2
+        mv ffmpeg-4.0.0 ffmpeg-src
 
-      - name: Configure FFmpeg for Windows x64
-        working-directory: ./ffmpeg-4.0.0
-        run: |
-          export CC=x86_64-w64-mingw32-gcc
-          export CXX=x86_64-w64-mingw32-g++
-          export AR=x86_64-w64-mingw32-ar
-          export NM=x86_64-w64-mingw32-nm
-          export WINDRES=x86_64-w64-mingw32-windres
-          export PATH=/usr/bin:$PATH
-          
-          ./configure \
-            --target-os=mingw32 \
-            --arch=x86_64 \
-            --cross-prefix=x86_64-w64-mingw32- \
-            --cc=x86_64-w64-mingw32-gcc \
-            --cxx=x86_64-w64-mingw32-g++ \
-            --ar=x86_64-w64-mingw32-ar \
-            --nm=x86_64-w64-mingw32-nm \
-            --pkg-config=pkg-config \
-            --disable-everything \
-            --disable-network \
-            --disable-protocols \
-            --enable-protocol=file \
-            --disable-decoders \
-            --enable-decoder=h264 \
-            --enable-decoder=mp3 \
-            --enable-decoder=mp2 \
-            --enable-decoder=aac \
-            --enable-decoder=wavpack \
-            --enable-decoder=flac \
-            --enable-decoder=pcm_s16le \
-            --enable-decoder=pcm_s24le \
-            --enable-decoder=pcm_f32le \
-            --disable-encoders \
-            --disable-demuxers \
-            --enable-demuxer=h264 \
-            --enable-demuxer=mov \
-            --enable-demuxer=matroska \
-            --enable-demuxer=mpegts \
-            --enable-demuxer=mp3 \
-            --enable-demuxer=aac \
-            --enable-demuxer=wav \
-            --enable-demuxer=flac \
-            --disable-muxers \
-            --enable-muxer=h264 \
-            --enable-muxer=mp4 \
-            --enable-muxer=matroska \
-            --enable-muxer=mpegts \
-            --enable-muxer=mp3 \
-            --enable-muxer=wav \
-            --enable-muxer=flac \
-            --disable-parsers \
-            --enable-parser=h264 \
-            --enable-parser=mpegaudio \
-            --enable-parser=aac \
-            --enable-parser=flac \
-            --disable-bsfs \
-            --enable-bsf=h264_mp4toannexb \
-            --disable-filters \
-            --disable-avdevice \
-            --disable-swscale \
-            --disable-avfilter \
-            --disable-postproc \
-            --disable-ffplay \
-            --disable-ffprobe \
-            --disable-doc \
-            --disable-htmlpages \
-            --disable-manpages \
-            --disable-podpages \
-            --disable-txtpages \
-            --disable-runtime-cpudetect \
-            --enable-pic \
-            --enable-shared \
-            --extra-cflags="-O2 -pipe" \
-            --enable-gpl \
-            --enable-nonfree \
-            --enable-dxva2 \
-            --enable-d3d11va
+    - name: Configure FFmpeg
+      run: |
+        cd ffmpeg-src
+        ./configure \
+          --prefix=../dist \
+          --target-os=mingw32 \
+          --cross-prefix=x86_64-w64-mingw32- \
+          --pkg-config-flags="--static" \
+          --enable-shared \
+          --disable-static \
+          --disable-werror \
+          --enable-gpl \
+          --enable-version3 \
+          --disable-doc \
+          --disable-ffplay \
+          --disable-ffprobe
+      shell: bash
 
-      - name: Build FFmpeg (Windows x64)
-        working-directory: ./ffmpeg-4.0.0
-        run: |
-          make -j$(nproc) WINDRES=x86_64-w64-mingw32-windres
+    - name: Compile and Install
+      run: |
+        cd ffmpeg-src
+        make -j$(nproc) WINDRES=x86_64-w64-mingw32-windres
+        make install
+      shell: bash
 
-      - name: Install to temporary directory
-        working-directory: ./ffmpeg-4.0.0
-        run: |
-          make install DESTDIR=${{ github.workspace }}/ffmpeg-install
+    - name: Prepare Artifacts
+      run: |
+        mkdir -p ffmpeg-win64
+        # 复制生成的可执行文件和动态库
+        cp -r dist/bin/*.exe ffmpeg-win64/
+        cp -r dist/bin/*.dll ffmpeg-win64/
+        cp -r dist/include ffmpeg-win64/
+        cp -r dist/lib ffmpeg-win64/
 
-      - name: Upload Artifacts (Windows binaries)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ffmpeg-4.0.0-windows-x64
-          path: |
-            ${{ github.workspace }}/ffmpeg-install/usr/local/bin/*.exe
-            ${{ github.workspace }}/ffmpeg-install/usr/local/bin/*.dll
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ffmpeg-4.0.0-windows-x64
+        path: ffmpeg-win64/
