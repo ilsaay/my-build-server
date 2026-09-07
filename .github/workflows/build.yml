@@ -115,13 +115,7 @@ jobs:
       - name: Build FFmpeg (Windows x64)
         working-directory: ./ffmpeg-4.0.0
         run: |
-          # 创建 windres 包装脚本，强制指定预处理器
-          cat > /tmp/windres-wrapper << 'EOF'
-          #!/bin/sh
-          exec x86_64-w64-mingw32-windres --preprocessor="x86_64-w64-mingw32-gcc -E" "$@"
-          EOF
-          chmod +x /tmp/windres-wrapper
-          make -j$(nproc) CC=x86_64-w64-mingw32-gcc WINDRES=/tmp/windres-wrapper
+          make -j$(nproc) WINDRES=x86_64-w64-mingw32-windres
 
       - name: Install to temporary directory
         working-directory: ./ffmpeg-4.0.0
@@ -132,4 +126,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-4.0.0-windows-x64
-          path: ${{ github.workspace }}/ffmpeg-install/usr/local/bin/*.exe
+          path: |
+            ${{ github.workspace }}/ffmpeg-install/usr/local/bin/*.exe
+            ${{ github.workspace }}/ffmpeg-install/usr/local/bin/*.dll
