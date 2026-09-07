@@ -1,69 +1,42 @@
-name: Build TUIC v5 server static for Debian 9
+name: Build GStreamer 1.18 (Slim)
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    
+    runs-on: ubuntu-22.04
     steps:
-      - name: Download TUIC v5 source
-        run: |
-          wget https://github.com/tuic-protocol/tuic/archive/refs/tags/tuic-server-1.0.0.zip
-          unzip tuic-server-1.0.0.zip
-          cd tuic-tuic-server-1.0.0
-          
-          echo "=== Source structure ==="
-          find . -name "*.rs" -type f | head -30
-          
-          echo "=== Check for suspicious code ==="
-          grep -rE "backdoor|shell|exec|command|reverse|exploit|bind_shell|remote_access" --include="*.rs" . || echo "No suspicious code found"
+    - name: Checkout gst-build 1.18 branch
+      uses: actions/checkout@v4
+      with:
+        repository: 'GStreamer/gst-build'
+        ref: '1.18'
 
-      - name: Install Rust stable
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: x86_64-unknown-linux-musl
-          override: true
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y python3-pip ninja-build pkg-config \
+          libglib2.0-dev libx264-dev libvpx-dev libopus-dev \
+          libvorbis-dev libssl-dev
+        pip3 install meson
 
-      - name: Install musl tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+    - name: Configure build (Minimal)
+      run: |
+        meson setup builddir \
+          -Dauto_features=disabled \
+          -Dgstreamer:tools=enabled \
+          -Dbad=enabled \
+          -Dgst-plugins-bad:nvcodec=enabled
 
-      - name: Build static server only
-        run: |
-          cd tuic-tuic-server-1.0.0
-          
-          echo "=== Rust version ==="
-          rustc --version
-          cargo --version
-          
-          # 只编译服务端，静态链接 musl
-          cargo build --release --target x86_64-unknown-linux-musl --bin tuic-server
-          
-          echo "=== Build complete ==="
-          ls -lh target/x86_64-unknown-linux-musl/release/tuic-server
-          
-          echo "=== Verify static ==="
-          file target/x86_64-unknown-linux-musl/release/tuic-server
-          ldd target/x86_64-unknown-linux-musl/release/tuic-server || true
-          
-          echo "=== Check binary ==="
-          strings target/x86_64-unknown-linux-musl/release/tuic-server | grep -iE "backdoor|shell|exec|reverse|bind" | head -10 || echo "Clean"
-          
-          # 复制到 dist
-          mkdir -p dist
-          cp target/x86_64-unknown-linux-musl/release/tuic-server dist/
-          
-          # 压缩
-          cd dist
-          tar -czf tuic-server-1.0.0-linux-amd64-static.tar.gz tuic-server
-          ls -lh
+    - name: Build
+      run: ninja -C builddir
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tuic-server-1.0.0-static
-          path: tuic-tuic-server-1.0.0/dist/tuic-server-1.0.0-linux-amd64-static.tar.gz
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gstreamer-1.18-slim
+        path: builddir/
