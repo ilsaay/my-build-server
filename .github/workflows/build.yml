@@ -54,26 +54,36 @@ jobs:
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        # 🌟 升级版智能假 windres 脚本：自动捕获 -o 后面的目标文件名
+        # 🌟 升级版全智能参数解析脚本：完美捕获任何形式的目标输出文件名
         cat << 'EOF' > fake_windres.sh
         #!/bin/sh
         OUT=""
-        while [ "$1" != "" ]; do
-            if [ "$1" = "-o" ]; then
-                shift
-                OUT="$1"
+        LAST=""
+        PREV_WAS_O=0
+        for arg do
+            if [ "$PREV_WAS_O" = "1" ]; then
+                OUT="$arg"
+                PREV_WAS_O=0
             fi
-            shift
+            if [ "$arg" = "-o" ]; then
+                PREV_WAS_O=1
+            fi
+            LAST="$arg"
         done
-        if [ -n "$OUT" ]; then
+        if [ -z "$OUT" ]; then
+            OUT="$LAST"
+        fi
+        
+        # 如果目标是 .o 文件，则用 gcc 生成一个安全的空对象文件
+        if echo "$OUT" | grep -q "\.o$"; then
             x86_64-w64-mingw32-gcc -c -x c /dev/null -o "$OUT"
         else
-            x86_64-w64-mingw32-gcc -c -x c /dev/null -o /dev/null
+            exit 0
         fi
         EOF
         chmod +x fake_windres.sh
         
-        # 编译时使用智能假脚本
+        # 使用智能假脚本进行编译
         make -j$(nproc) WINDRES=./fake_windres.sh
         make install
       shell: bash
