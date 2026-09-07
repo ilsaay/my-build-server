@@ -33,6 +33,14 @@ jobs:
         tar -xjf ffmpeg-4.0.tar.bz2
         mv ffmpeg-4.0 ffmpeg-src
 
+    - name: Remove Windows Resource Files
+      run: |
+        cd ffmpeg-src
+        # 🌟 核心核武器：直接删除所有 .rc 文件！
+        # 这样 Makefile 就永远不会去调用会报错的 windres 了，绝对根治！
+        find . -name "*.rc" -delete
+      shell: bash
+
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
@@ -54,37 +62,8 @@ jobs:
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        # 🌟 升级版全智能参数解析脚本：完美捕获任何形式的目标输出文件名
-        cat << 'EOF' > fake_windres.sh
-        #!/bin/sh
-        OUT=""
-        LAST=""
-        PREV_WAS_O=0
-        for arg do
-            if [ "$PREV_WAS_O" = "1" ]; then
-                OUT="$arg"
-                PREV_WAS_O=0
-            fi
-            if [ "$arg" = "-o" ]; then
-                PREV_WAS_O=1
-            fi
-            LAST="$arg"
-        done
-        if [ -z "$OUT" ]; then
-            OUT="$LAST"
-        fi
-        
-        # 如果目标是 .o 文件，则用 gcc 生成一个安全的空对象文件
-        if echo "$OUT" | grep -q "\.o$"; then
-            x86_64-w64-mingw32-gcc -c -x c /dev/null -o "$OUT"
-        else
-            exit 0
-        fi
-        EOF
-        chmod +x fake_windres.sh
-        
-        # 使用智能假脚本进行编译
-        make -j$(nproc) WINDRES=./fake_windres.sh
+        # 正常编译，由于没有了 .rc 文件，这里会一路畅通到底
+        make -j$(nproc)
         make install
       shell: bash
 
