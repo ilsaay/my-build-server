@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest # 🌟 换回最新版的系统，不排队！
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout Repository
@@ -50,14 +50,14 @@ jobs:
           --disable-ffplay \
           --disable-ffprobe
         
-        # 🔥 核心魔法修复：强行清空导致报错的 WINDRESFLAGS 参数！
-        sed -i 's/^WINDRESFLAGS=.*/WINDRESFLAGS=/' ffbuild/config.mak
+        # 🔥 绝对终极无敌魔法：物理消灭 windres 报错！
+        # 直接把惹祸的图标编译规则删掉，换成生成一个空文件的假动作欺骗系统！
+        sed -i 's/$(WINDRES).*/x86_64-w64-mingw32-gcc -c -x c \/dev\/null -o $@/' ffbuild/common.mak
       shell: bash
 
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        # 这次直接 make 即可，不需要再传风火轮参数了
         make -j$(nproc)
         make install
       shell: bash
@@ -65,7 +65,6 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p ffmpeg-win64
-        # 复制生成的所有文件到打包目录
         cp -r dist/bin ffmpeg-win64/
         cp -r dist/include ffmpeg-win64/
         cp -r dist/lib ffmpeg-win64/
