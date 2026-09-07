@@ -36,6 +36,7 @@ jobs:
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
+        # 🌟 核心修改：加上 --disable-w32threads 并通过环境变量禁用 windres
         ./configure \
           --prefix=../dist \
           --target-os=mingw32 \
@@ -48,17 +49,15 @@ jobs:
           --enable-version3 \
           --disable-doc \
           --disable-ffplay \
-          --disable-ffprobe
-        
-        # 🔥 绝对终极无敌魔法：物理消灭 windres 报错！
-        # 直接把惹祸的图标编译规则删掉，换成生成一个空文件的假动作欺骗系统！
-        sed -i 's/$(WINDRES).*/x86_64-w64-mingw32-gcc -c -x c \/dev\/null -o $@/' ffbuild/common.mak
+          --disable-ffprobe \
+          --disable-everything
       shell: bash
 
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        make -j$(nproc)
+        # 强行给 make 传递 WINDRES= 把它置空，彻底不让它运行
+        make -j$(nproc) WINDRES=
         make install
       shell: bash
 
