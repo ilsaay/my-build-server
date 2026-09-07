@@ -49,11 +49,13 @@ jobs:
     - name: Bootstrap Cerbero
       run: |
         source $CERBERO_VENV/bin/activate
-        python ./cerbero-uninstalled bootstrap -v
+        # ✅ 移除 -v，bootstrap 不需要变体参数
+        python ./cerbero-uninstalled bootstrap
 
     - name: Build GStreamer 1.18 for Windows x64
       run: |
         source $CERBERO_VENV/bin/activate
+        # ✅ 在构建时指定变体 cross 和配置文件
         python ./cerbero-uninstalled -c config/win64.cbc -v cross package gstreamer-1.0
 
     - name: Upload artifacts
