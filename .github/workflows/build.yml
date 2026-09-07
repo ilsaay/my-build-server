@@ -44,7 +44,7 @@ jobs:
           mingw-w64-x86_64-zlib
           mingw-w64-x86_64-bzip2
           mingw-w64-x86_64-xz
-          mingw-w64-x86_64-libsoup
+          mingw-w64-x86_64-libsoup3
           mingw-w64-x86_64-libxml2
           mingw-w64-x86_64-curl
           mingw-w64-x86_64-openssl
@@ -52,40 +52,24 @@ jobs:
     - name: Setup Python virtual environment
       shell: msys2 {0}
       run: |
-        # 使用 virtualenv 创建虚拟环境（兼容性更好）
         virtualenv cerbero-venv
-        
-        # 激活虚拟环境（MSYS2/MinGW 使用 bin/activate）
         source cerbero-venv/bin/activate
-        
-        # 升级 pip 并安装构建工具
         pip install --upgrade pip
         pip install setuptools wheel
-        
-        # 保存虚拟环境路径供后续步骤使用
         echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
-        
-        # 调试：确认 Python 环境
         which python
         python --version
 
     - name: Bootstrap Cerbero
       shell: msys2 {0}
       run: |
-        # 激活虚拟环境
         source $CERBERO_VENV/bin/activate
-        
-        # 运行 Cerbero bootstrap
         python ./cerbero-uninstalled bootstrap -v
 
     - name: Build GStreamer 1.18 with MinGW
       shell: msys2 {0}
       run: |
-        # 激活虚拟环境
         source $CERBERO_VENV/bin/activate
-        
-        # 使用 MinGW 64位变体构建
-        # 注意：完整构建包含所有插件，如需精简请参考后续说明
         python ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
 
     - name: Upload artifacts
