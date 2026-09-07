@@ -52,24 +52,42 @@ jobs:
     - name: Setup Python virtual environment
       shell: msys2 {0}
       run: |
+        # 创建虚拟环境
         virtualenv cerbero-venv
+        
+        # 激活虚拟环境
         source cerbero-venv/bin/activate
-        pip install --upgrade pip
-        pip install setuptools wheel
-        echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
+        
+        # 安装 setuptools 和 wheel（不升级 pip，避免权限错误）
+        pip install --no-cache-dir setuptools wheel
+        
+        # 验证安装
+        echo "=== 虚拟环境信息 ==="
         which python
         python --version
+        pip --version
+        python -c "import setuptools; print('setuptools OK')"
+        python -c "import wheel; print('wheel OK')"
+        
+        # 保存虚拟环境路径供后续步骤使用
+        echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
 
     - name: Bootstrap Cerbero
       shell: msys2 {0}
       run: |
+        # 激活虚拟环境
         source $CERBERO_VENV/bin/activate
+        
+        # 运行 Cerbero bootstrap
         python ./cerbero-uninstalled bootstrap -v
 
     - name: Build GStreamer 1.18 with MinGW
       shell: msys2 {0}
       run: |
+        # 激活虚拟环境
         source $CERBERO_VENV/bin/activate
+        
+        # 使用 MinGW 64位变体构建
         python ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
 
     - name: Upload artifacts
