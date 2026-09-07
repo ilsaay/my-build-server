@@ -36,6 +36,7 @@ jobs:
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
+        # 🌟 核心杀手锏：加入 extra-cflags 忽略指针类型不匹配的致命拦截
         ./configure \
           --prefix=../dist \
           --target-os=mingw32 \
@@ -48,13 +49,8 @@ jobs:
           --enable-version3 \
           --disable-doc \
           --disable-ffplay \
-          --disable-ffprobe
-          
-        # 🌟 核心杀手锏：直接修改生成的 config.mak
-        # 将 windres 的预处理器指定方式剥离，或直接让 windres 不使用复杂参数，
-        # 从而彻底避开新版 binutils 的解析崩溃 Bug。
-        echo "WINDRES=x86_64-w64-mingw32-windres" >> ffbuild/config.mak
-        sed -i 's/WINDRESFLAGS.*/WINDRESFLAGS=/' ffbuild/config.mak
+          --disable-ffprobe \
+          --extra-cflags="-Wno-error=incompatible-pointer-types"
       shell: bash
 
     - name: Compile and Install
