@@ -36,7 +36,6 @@ jobs:
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
-        # 🌟 核心修改：加上 --disable-w32threads 并通过环境变量禁用 windres
         ./configure \
           --prefix=../dist \
           --target-os=mingw32 \
@@ -49,15 +48,20 @@ jobs:
           --enable-version3 \
           --disable-doc \
           --disable-ffplay \
-          --disable-ffprobe \
-          --disable-everything
+          --disable-ffprobe
       shell: bash
 
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        # 强行给 make 传递 WINDRES= 把它置空，彻底不让它运行
-        make -j$(nproc) WINDRES=
+        # 🌟 核心绝招：创建一个假的 windres 替换脚本，完美骗过 Makefile
+        # 当它试图编译 Windows 图标资源时，我们用 gcc 生成一个安全的空文件代替，彻底避开报错！
+        echo '#!/bin/sh' > fake_windres.sh
+        echo 'x86_64-w64-mingw32-gcc -c -x c /dev/null -o "$$3"' >> fake_windres.sh
+        chmod +x fake_windres.sh
+        
+        # 编译时把 WINDRES 指向我们的假脚本
+        make -j$(nproc) WINDRES=./fake_windres.sh
         make install
       shell: bash
 
