@@ -36,7 +36,7 @@ jobs:
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
-        # 🌟 核心杀手锏：加入 extra-cflags 忽略指针类型不匹配的致命拦截
+        # 🌟 严格按照官方文档：显式配置交叉编译参数，并禁用掉在交叉编译时容易引发冲突的输入/采集设备模块（如 vfwcap、dshow 等）
         ./configure \
           --prefix=../dist \
           --target-os=mingw32 \
@@ -50,7 +50,8 @@ jobs:
           --disable-doc \
           --disable-ffplay \
           --disable-ffprobe \
-          --extra-cflags="-Wno-error=incompatible-pointer-types"
+          --disable-indev=vfwcap \
+          --disable-indev=dshow
       shell: bash
 
     - name: Compile and Install
