@@ -1,4 +1,4 @@
-name: Build FFmpeg 4.0 for Windows
+name: Build FFmpeg for Windows
 
 on:
   workflow_dispatch:
@@ -27,16 +27,16 @@ jobs:
           gcc-mingw-w64-x86-64 \
           g++-mingw-w64-x86-64
 
-    - name: Download FFmpeg 4.0 Source
+    - name: Download FFmpeg Source
       run: |
-        wget https://ffmpeg.org/releases/ffmpeg-4.0.tar.bz2
-        tar -xjf ffmpeg-4.0.tar.bz2
-        mv ffmpeg-4.0 ffmpeg-src
+        # 🌟 升级到成熟稳定的 FFmpeg 7.0 版本，彻底告别老旧代码与现代编译器的语法冲突
+        wget https://ffmpeg.org/releases/ffmpeg-7.0.tar.bz2
+        tar -xjf ffmpeg-7.0.tar.bz2
+        mv ffmpeg-7.0 ffmpeg-src
 
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
-        # 🌟 严格按照官方文档：显式配置交叉编译参数，并禁用掉在交叉编译时容易引发冲突的输入/采集设备模块（如 vfwcap、dshow 等）
         ./configure \
           --prefix=../dist \
           --target-os=mingw32 \
@@ -49,9 +49,7 @@ jobs:
           --enable-version3 \
           --disable-doc \
           --disable-ffplay \
-          --disable-ffprobe \
-          --disable-indev=vfwcap \
-          --disable-indev=dshow
+          --disable-ffprobe
       shell: bash
 
     - name: Compile and Install
@@ -71,5 +69,5 @@ jobs:
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ffmpeg-4.0-windows-x64
+        name: ffmpeg-7.0-windows-x64
         path: ffmpeg-win64/
