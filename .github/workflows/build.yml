@@ -1,4 +1,4 @@
-name: Build GStreamer 1.18 for Windows x64 (Cross-compile on Ubuntu)
+name: Build GStreamer 1.18 for Windows x64 (Cross-compile on Ubuntu 20.04)
 
 on:
   push:
@@ -9,7 +9,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    # 使用 Ubuntu 20.04 以兼容 Cerbero 1.18
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Checkout Cerbero 1.18 branch
@@ -54,22 +55,20 @@ jobs:
       run: |
         python3 -m venv cerbero-venv
         source cerbero-venv/bin/activate
+        # 升级 pip 并安装必需包
         pip install --upgrade pip
-        # 安装 distro 包（Cerbero 1.18 需要）
-        pip install distro
-        pip install setuptools wheel
+        pip install distro setuptools wheel
         echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
 
     - name: Bootstrap Cerbero
       run: |
         source $CERBERO_VENV/bin/activate
-        # 如果 Python 版本过高导致语法错误，可能需要修改 cerbero 代码
         python ./cerbero-uninstalled bootstrap -v
 
     - name: Build GStreamer 1.18 for Windows x64
       run: |
         source $CERBERO_VENV/bin/activate
-        # 使用跨平台配置文件构建 Windows x64 目标
+        # 使用 cross 变体进行交叉编译
         python ./cerbero-uninstalled -c config/win64.cbc -v cross package gstreamer-1.0
 
     - name: Upload artifacts
