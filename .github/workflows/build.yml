@@ -1,4 +1,4 @@
-name: Build FFmpeg for Windows
+name: Build FFmpeg 4.0 for Windows
 
 on:
   workflow_dispatch:
@@ -27,12 +27,20 @@ jobs:
           gcc-mingw-w64-x86-64 \
           g++-mingw-w64-x86-64
 
-    - name: Download FFmpeg Source
+    - name: Download FFmpeg 4.0 Source
       run: |
-        # 🌟 升级到成熟稳定的 FFmpeg 7.0 版本，彻底告别老旧代码与现代编译器的语法冲突
-        wget https://ffmpeg.org/releases/ffmpeg-7.0.tar.bz2
-        tar -xjf ffmpeg-7.0.tar.bz2
-        mv ffmpeg-7.0 ffmpeg-src
+        wget https://ffmpeg.org/releases/ffmpeg-4.0.tar.bz2
+        tar -xjf ffmpeg-4.0.tar.bz2
+        mv ffmpeg-4.0 ffmpeg-src
+
+    - name: Patch FFmpeg 4.0 for Modern GCC
+      run: |
+        cd ffmpeg-src
+        # 🌟 核心修复：精准修改 vfwcap.c 中不符合现代 C 语言规范的指针强制转换，
+        # 把 LONG* 转型为 int*，彻底消灭新版 GCC 的编译拦截！
+        sed -i 's/av_parse_video_size(&bi->bmiHeader.biWidth,/av_parse_video_size((int *)&bi->bmiHeader.biWidth,/g' libavdevice/vfwcap.c
+        sed -i 's/ctx->video_size);/(int *)&bi->bmiHeader.biHeight, ctx->video_size);/g' libavdevice/vfwcap.c
+      shell: bash
 
     - name: Configure FFmpeg
       run: |
@@ -50,6 +58,10 @@ jobs:
           --disable-doc \
           --disable-ffplay \
           --disable-ffprobe
+          
+        # 避开 windres 编译 Bug
+        echo "WINDRES=x86_64-w64-mingw32-windres" >> ffbuild/config.mak
+        sed -i 's/WINDRESFLAGS.*/WINDRESFLAGS=/' ffbuild/config.mak
       shell: bash
 
     - name: Compile and Install
@@ -69,5 +81,5 @@ jobs:
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ffmpeg-7.0-windows-x64
+        name: ffmpeg-4.0-windows-x64
         path: ffmpeg-win64/
