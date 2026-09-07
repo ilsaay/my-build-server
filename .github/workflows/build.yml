@@ -1,4 +1,4 @@
-name: Build FFmpeg 4.0 for Windows
+name: Build FFmpeg 4.0 for Windows (Docker)
 
 on:
   workflow_dispatch:
@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 🌟 核心魔法：直接在旧版 Ubuntu 容器里编译！
+    # 这样里面的 GCC 和工具链会自动回到完美兼容 FFmpeg 4.0 的年代。
+    container: ubuntu:20.04
 
     steps:
     - name: Checkout Repository
@@ -15,8 +18,9 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y \
           build-essential \
           yasm \
           nasm \
@@ -32,15 +36,6 @@ jobs:
         wget https://ffmpeg.org/releases/ffmpeg-4.0.tar.bz2
         tar -xjf ffmpeg-4.0.tar.bz2
         mv ffmpeg-4.0 ffmpeg-src
-
-    - name: Patch FFmpeg 4.0 for Modern GCC
-      run: |
-        cd ffmpeg-src
-        # 🌟 核心修复：精准修改 vfwcap.c 中不符合现代 C 语言规范的指针强制转换，
-        # 把 LONG* 转型为 int*，彻底消灭新版 GCC 的编译拦截！
-        sed -i 's/av_parse_video_size(&bi->bmiHeader.biWidth,/av_parse_video_size((int *)&bi->bmiHeader.biWidth,/g' libavdevice/vfwcap.c
-        sed -i 's/ctx->video_size);/(int *)&bi->bmiHeader.biHeight, ctx->video_size);/g' libavdevice/vfwcap.c
-      shell: bash
 
     - name: Configure FFmpeg
       run: |
@@ -58,10 +53,6 @@ jobs:
           --disable-doc \
           --disable-ffplay \
           --disable-ffprobe
-          
-        # 避开 windres 编译 Bug
-        echo "WINDRES=x86_64-w64-mingw32-windres" >> ffbuild/config.mak
-        sed -i 's/WINDRESFLAGS.*/WINDRESFLAGS=/' ffbuild/config.mak
       shell: bash
 
     - name: Compile and Install
