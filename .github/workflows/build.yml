@@ -67,12 +67,6 @@ jobs:
             --enable-decoder=pcm_s24le \
             --enable-decoder=pcm_f32le \
             --disable-encoders \
-            --enable-encoder=h264 \
-            --enable-encoder=mp3 \
-            --enable-encoder=mp2 \
-            --enable-encoder=aac \
-            --enable-encoder=pcm_s16le \
-            --enable-encoder=flac \
             --disable-demuxers \
             --enable-demuxer=h264 \
             --enable-demuxer=mov \
@@ -88,7 +82,6 @@ jobs:
             --enable-muxer=matroska \
             --enable-muxer=mpegts \
             --enable-muxer=mp3 \
-            --enable-muxer=aac \
             --enable-muxer=wav \
             --enable-muxer=flac \
             --disable-parsers \
@@ -122,11 +115,13 @@ jobs:
       - name: Build FFmpeg (Windows x64)
         working-directory: ./ffmpeg-4.0.0
         run: |
-          # 显式指定 WINDRES 及其预处理器，避免 windres 找不到交叉编译器
-          make -j$(nproc) \
-            CC=x86_64-w64-mingw32-gcc \
-            WINDRES=x86_64-w64-mingw32-windres \
-            WINDRESFLAGS="--preprocessor=x86_64-w64-mingw32-gcc -E"
+          # 创建 windres 包装脚本，强制指定预处理器
+          cat > /tmp/windres-wrapper << 'EOF'
+          #!/bin/sh
+          exec x86_64-w64-mingw32-windres --preprocessor="x86_64-w64-mingw32-gcc -E" "$@"
+          EOF
+          chmod +x /tmp/windres-wrapper
+          make -j$(nproc) CC=x86_64-w64-mingw32-gcc WINDRES=/tmp/windres-wrapper
 
       - name: Install to temporary directory
         working-directory: ./ffmpeg-4.0.0
