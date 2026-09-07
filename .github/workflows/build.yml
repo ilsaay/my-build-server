@@ -1,48 +1,143 @@
-name: Get GStreamer 1.18 for Windows (MinGW)
+name: Build FFmpeg 4.0.0 (Minimal + Hardware)
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:   # 支持手动触发
 
 jobs:
-  get-gst:
-    runs-on: windows-latest
+  build:
+    runs-on: ubuntu-22.04   # 使用 Ubuntu 22.04，软件源中有 libmfx-dev
 
     steps:
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          install: |
-            zip
-            mingw-w64-x86_64-gstreamer
-            mingw-w64-x86_64-gst-plugins-base
-            mingw-w64-x86_64-gst-plugins-good
-            mingw-w64-x86_64-gst-plugins-bad
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Package GStreamer
-        shell: msys2 {0}
+      - name: Install build dependencies
         run: |
-          mkdir -p dist/bin dist/lib
-          # 复制核心二进制
-          cp /mingw64/bin/gst-* dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libgstreamer-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libgst*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libglib-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libgobject-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libgmodule-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libffi-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libintl-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libiconv-*.dll dist/bin/ 2>/dev/null || true
-          cp /mingw64/bin/libpcre*.dll dist/bin/ 2>/dev/null || true
-          # 复制插件
-          cp /mingw64/lib/gstreamer-1.0/*.dll dist/lib/ 2>/dev/null || true
-          # 打包（现在 zip 已安装）
-          zip -r gstreamer-1.18-mingw64.zip dist/
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential yasm nasm cmake git pkg-config \
+            libx264-dev \          # 软件 H.264 编码器（用于备用，可注释掉）
+            libmp3lame-dev \       # MP3 编码库（软件）
+            libfdk-aac-dev \       # AAC 编码库（软件，可选）
+            libvorbis-dev \        # 如果需要
+            libopus-dev \
+            libmfx-dev \           # Intel QSV（旧版 Media SDK）
+            libva-dev \            # VAAPI（AMD/Intel）
+            libdrm-dev \           # VAAPI 依赖
+            libvdpau-dev           # 可选，VAAPI 后端
 
-      - name: Upload artifact
+      - name: Download FFmpeg 4.0.0 source
+        run: |
+          wget https://ffmpeg.org/releases/ffmpeg-4.0.0.tar.bz2
+          tar -xjf ffmpeg-4.0.0.tar.bz2
+          cd ffmpeg-4.0.0
+
+      - name: Configure FFmpeg
+        working-directory: ./ffmpeg-4.0.0
+        run: |
+          ./configure \
+            --disable-everything \
+            \
+            --disable-network \
+            --disable-protocols \
+            --enable-protocol=file \
+            \
+            --disable-decoders \
+            --enable-decoder=h264 \
+            --enable-decoder=mp3 \
+            --enable-decoder=mp2 \
+            --enable-decoder=aac \
+            --enable-decoder=wavpack \
+            --enable-decoder=flac \
+            --enable-decoder=pcm_s16le \
+            --enable-decoder=pcm_s24le \
+            --enable-decoder=pcm_f32le \
+            \
+            --disable-encoders \
+            --enable-encoder=h264_qsv \      # Intel QSV 硬件编码
+            --enable-encoder=h264_vaapi \    # VAAPI 硬件编码（AMD/Intel）
+            --enable-encoder=mp3 \
+            --enable-encoder=mp2 \
+            --enable-encoder=aac \
+            --enable-encoder=pcm_s16le \
+            --enable-encoder=flac \
+            # 如果需 NVIDIA，取消下面注释并确保 CUDA 环境已安装
+            # --enable-encoder=h264_nvenc \
+            # --enable-cuda --enable-cuvid --enable-nvenc --enable-nvdec --enable-libnpp \
+            \
+            --disable-demuxers \
+            --enable-demuxer=h264 \
+            --enable-demuxer=mov \
+            --enable-demuxer=matroska \
+            --enable-demuxer=mpegts \
+            --enable-demuxer=mp3 \
+            --enable-demuxer=aac \
+            --enable-demuxer=wav \
+            --enable-demuxer=flac \
+            \
+            --disable-muxers \
+            --enable-muxer=h264 \
+            --enable-muxer=mp4 \
+            --enable-muxer=matroska \
+            --enable-muxer=mpegts \
+            --enable-muxer=mp3 \
+            --enable-muxer=aac \
+            --enable-muxer=wav \
+            --enable-muxer=flac \
+            \
+            --disable-parsers \
+            --enable-parser=h264 \
+            --enable-parser=mpegaudio \
+            --enable-parser=aac \
+            --enable-parser=flac \
+            \
+            --disable-bsfs \
+            --enable-bsf=h264_mp4toannexb \
+            \
+            --disable-filters \
+            --disable-avdevice \
+            --disable-swscale \
+            --disable-avfilter \
+            --disable-postproc \
+            \
+            --disable-ffplay \
+            --disable-ffprobe \
+            --disable-doc \
+            --disable-htmlpages \
+            --disable-manpages \
+            --disable-podpages \
+            --disable-txtpages \
+            \
+            --disable-runtime-cpudetect \
+            --enable-pic \
+            --enable-shared \
+            \
+            --extra-cflags="-O2 -pipe" \
+            \
+            --enable-gpl \
+            --enable-nonfree \
+            --enable-libmfx \          # Intel QSV（旧版 Media SDK）
+            --enable-vaapi             # VAAPI 硬件加速
+            # 如需 NVIDIA，添加：
+            # --extra-cflags="-I/usr/local/cuda/include" \
+            # --extra-ldflags="-L/usr/local/cuda/lib64"
+
+      - name: Build FFmpeg
+        working-directory: ./ffmpeg-4.0.0
+        run: |
+          make -j$(nproc)
+
+      - name: Install to temporary directory
+        working-directory: ./ffmpeg-4.0.0
+        run: |
+          make install DESTDIR=${{ github.workspace }}/ffmpeg-install
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: gstreamer-1.18-mingw64
-          path: gstreamer-1.18-mingw64.zip
+          name: ffmpeg-4.0.0-hardware
+          path: ${{ github.workspace }}/ffmpeg-install/usr/local/
