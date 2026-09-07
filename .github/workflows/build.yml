@@ -36,7 +36,6 @@ jobs:
       - name: Configure FFmpeg for Windows x64
         working-directory: ./ffmpeg-4.0.0
         run: |
-          # 设置环境变量，确保工具链可用
           export CC=x86_64-w64-mingw32-gcc
           export CXX=x86_64-w64-mingw32-g++
           export AR=x86_64-w64-mingw32-ar
@@ -123,8 +122,11 @@ jobs:
       - name: Build FFmpeg (Windows x64)
         working-directory: ./ffmpeg-4.0.0
         run: |
-          # 再次明确指定 CC 和 WINDRES，覆盖 Makefile 可能未正确继承的环境变量
-          make -j$(nproc) CC=x86_64-w64-mingw32-gcc WINDRES=x86_64-w64-mingw32-windres
+          # 显式指定 WINDRES 及其预处理器，避免 windres 找不到交叉编译器
+          make -j$(nproc) \
+            CC=x86_64-w64-mingw32-gcc \
+            WINDRES=x86_64-w64-mingw32-windres \
+            WINDRESFLAGS="--preprocessor=x86_64-w64-mingw32-gcc -E"
 
       - name: Install to temporary directory
         working-directory: ./ffmpeg-4.0.0
