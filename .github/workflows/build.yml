@@ -1,4 +1,4 @@
-name: Build FFmpeg 4.0.0 (Minimal + Hardware)
+name: Build FFmpeg 4.0.0 for Windows x64 (Minimal + Hardware)
 
 on:
   push:
@@ -8,14 +8,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-windows-cross:
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
+      - name: Install cross-compilation toolchain and deps
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -25,21 +25,29 @@ jobs:
             cmake \
             git \
             pkg-config \
+            gcc-mingw-w64-x86-64 \
+            g++-mingw-w64-x86-64 \
+            mingw-w64-tools \
             libmp3lame-dev \
             libfdk-aac-dev \
-            libmfx-dev \
-            libva-dev \
-            libdrm-dev \
-            libvdpau-dev
+            # 下面这些是 Windows 硬件加速所需的开发库（交叉编译时需要针对 Windows 的版本）
+            # 但 Ubuntu 仓库中并不直接提供 Windows 版的 libmfx、libva 等，
+            # 因此我们只能启用软件编码或利用 FFmpeg 内置的 dxva2/d3d11va 支持（无需外部库）
+            # 若需 Intel QSV 或 NVIDIA NVENC，需自行下载 Windows SDK 并设置路径（较复杂）
+            # 这里我们先启用 dxva2 和 d3d11va（FFmpeg 原生支持）
 
       - name: Clone FFmpeg 4.0.0 source (tag n4.0)
         run: |
           git clone --branch n4.0 --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-4.0.0
 
-      - name: Configure FFmpeg
+      - name: Configure FFmpeg for Windows x64
         working-directory: ./ffmpeg-4.0.0
         run: |
           ./configure \
+            --target-os=mingw32 \
+            --arch=x86_64 \
+            --cross-prefix=x86_64-w64-mingw32- \
+            --pkg-config=pkg-config \
             --disable-everything \
             --disable-network \
             --disable-protocols \
@@ -55,8 +63,8 @@ jobs:
             --enable-decoder=pcm_s24le \
             --enable-decoder=pcm_f32le \
             --disable-encoders \
-            --enable-encoder=h264_qsv \
-            --enable-encoder=h264_vaapi \
+            --enable-encoder=h264_qsv \          # Intel QSV（Windows 下使用 libmfx，需额外下载 SDK，此处仅示意）
+            --enable-encoder=h264_nvenc \        # NVIDIA NVENC（需下载 NVENC SDK）
             --enable-encoder=mp3 \
             --enable-encoder=mp2 \
             --enable-encoder=aac \
@@ -101,26 +109,31 @@ jobs:
             --disable-txtpages \
             --disable-runtime-cpudetect \
             --enable-pic \
-            --enable-shared \
+            --enable-shared \                    # 生成 dll（若需要静态库可改为 --enable-static）
             --extra-cflags="-O2 -pipe" \
             --enable-gpl \
             --enable-nonfree \
-            --enable-libmfx \
-            --enable-vaapi \
+            # Windows 下硬件加速支持（无需额外库，FFmpeg 内置）
+            --enable-dxva2 \
+            --enable-d3d11va \
+            # 若需要 Intel QSV，需要下载 Windows 版 libmfx 并设置 --extra-cflags/-L 路径
+            # 这里仅作为保留，实际编译时可能因缺少库而失败，建议先禁用
+            # --enable-libmfx \
             --enable-libmp3lame \
             --enable-libfdk-aac
 
-      - name: Build FFmpeg
+      - name: Build FFmpeg (Windows x64)
         working-directory: ./ffmpeg-4.0.0
-        run: make -j$(nproc)
+        run: |
+          make -j$(nproc)
 
       - name: Install to temporary directory
         working-directory: ./ffmpeg-4.0.0
         run: |
           make install DESTDIR=${{ github.workspace }}/ffmpeg-install
 
-      - name: Upload Artifacts
+      - name: Upload Artifacts (Windows binaries)
         uses: actions/upload-artifact@v4
         with:
-          name: ffmpeg-4.0.0-hardware
-          path: ${{ github.workspace }}/ffmpeg-install/usr/local/
+          name: ffmpeg-4.0.0-windows-x64
+          path: ${{ github.workspace }}/ffmpeg-install/usr/local/bin/*.exe
