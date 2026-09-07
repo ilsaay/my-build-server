@@ -54,13 +54,26 @@ jobs:
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        # 🌟 核心绝招：创建一个假的 windres 替换脚本，完美骗过 Makefile
-        # 当它试图编译 Windows 图标资源时，我们用 gcc 生成一个安全的空文件代替，彻底避开报错！
-        echo '#!/bin/sh' > fake_windres.sh
-        echo 'x86_64-w64-mingw32-gcc -c -x c /dev/null -o "$$3"' >> fake_windres.sh
+        # 🌟 升级版智能假 windres 脚本：自动捕获 -o 后面的目标文件名
+        cat << 'EOF' > fake_windres.sh
+        #!/bin/sh
+        OUT=""
+        while [ "$1" != "" ]; do
+            if [ "$1" = "-o" ]; then
+                shift
+                OUT="$1"
+            fi
+            shift
+        done
+        if [ -n "$OUT" ]; then
+            x86_64-w64-mingw32-gcc -c -x c /dev/null -o "$OUT"
+        else
+            x86_64-w64-mingw32-gcc -c -x c /dev/null -o /dev/null
+        fi
+        EOF
         chmod +x fake_windres.sh
         
-        # 编译时把 WINDRES 指向我们的假脚本
+        # 编译时使用智能假脚本
         make -j$(nproc) WINDRES=./fake_windres.sh
         make install
       shell: bash
