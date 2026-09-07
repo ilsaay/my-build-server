@@ -1,42 +1,56 @@
-name: Build GStreamer 1.18 (Slim)
+name: Build GStreamer 1.18 for Windows x64 with MinGW
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: windows-latest
+    
     steps:
-    - name: Checkout gst-build 1.18 branch
+    - name: Checkout Cerbero 1.18 branch
       uses: actions/checkout@v4
       with:
-        repository: 'GStreamer/gst-build'
+        repository: 'GStreamer/cerbero'
         ref: '1.18'
-
-    - name: Install build dependencies
+    
+    - name: Setup MSYS2 (MinGW)
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        install: |
+          git
+          make
+          autoconf
+          automake
+          libtool
+          pkg-config
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-python3
+          mingw-w64-x86_64-python3-pip
+          mingw-w64-x86_64-meson
+          mingw-w64-x86_64-ninja
+    
+    - name: Install Python dependencies
       run: |
-        sudo apt update
-        sudo apt install -y python3-pip ninja-build pkg-config \
-          libglib2.0-dev libx264-dev libvpx-dev libopus-dev \
-          libvorbis-dev libssl-dev
-        pip3 install meson
-
-    - name: Configure build (Minimal)
+        python -m pip install --upgrade pip
+        pip install setuptools
+    
+    - name: Bootstrap Cerbero
+      shell: msys2 {0}
       run: |
-        meson setup builddir \
-          -Dauto_features=disabled \
-          -Dgstreamer:tools=enabled \
-          -Dbad=enabled \
-          -Dgst-plugins-bad:nvcodec=enabled
-
-    - name: Build
-      run: ninja -C builddir
-
+        ./cerbero-uninstalled bootstrap -v
+    
+    - name: Build GStreamer 1.18 with MinGW
+      shell: msys2 {0}
+      run: |
+        # 使用 MinGW 64位变体
+        ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
+    
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: gstreamer-1.18-slim
-        path: builddir/
+        name: gstreamer-1.18-mingw-w64
+        path: build/dist/
