@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04 # 🌟 关键魔法：使用老版本系统完美避开新版编译器的 Bug
+    runs-on: ubuntu-latest # 🌟 换回最新版的系统，不排队！
 
     steps:
     - name: Checkout Repository
@@ -49,11 +49,15 @@ jobs:
           --disable-doc \
           --disable-ffplay \
           --disable-ffprobe
+        
+        # 🔥 核心魔法修复：强行清空导致报错的 WINDRESFLAGS 参数！
+        sed -i 's/^WINDRESFLAGS=.*/WINDRESFLAGS=/' ffbuild/config.mak
       shell: bash
 
     - name: Compile and Install
       run: |
         cd ffmpeg-src
+        # 这次直接 make 即可，不需要再传风火轮参数了
         make -j$(nproc)
         make install
       shell: bash
@@ -61,7 +65,7 @@ jobs:
     - name: Prepare Artifacts
       run: |
         mkdir -p ffmpeg-win64
-        # 优化打包逻辑，防止找不到文件报错
+        # 复制生成的所有文件到打包目录
         cp -r dist/bin ffmpeg-win64/
         cp -r dist/include ffmpeg-win64/
         cp -r dist/lib ffmpeg-win64/
