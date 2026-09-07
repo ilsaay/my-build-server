@@ -27,9 +27,7 @@ jobs:
             pkg-config \
             gcc-mingw-w64-x86-64 \
             g++-mingw-w64-x86-64 \
-            mingw-w64-tools \
-            libmp3lame-dev \
-            libfdk-aac-dev
+            mingw-w64-tools
 
       - name: Clone FFmpeg 4.0.0 source (tag n4.0)
         run: |
@@ -108,9 +106,7 @@ jobs:
             --enable-gpl \
             --enable-nonfree \
             --enable-dxva2 \
-            --enable-d3d11va \
-            --enable-libmp3lame \
-            --enable-libfdk-aac
+            --enable-d3d11va
 
       - name: Build FFmpeg (Windows x64)
         working-directory: ./ffmpeg-4.0.0
