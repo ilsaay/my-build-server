@@ -1,7 +1,7 @@
 name: Build FFmpeg 4.0 for Windows
 
 on:
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch:
   push:
     branches: [ main, master ]
 
@@ -37,6 +37,7 @@ jobs:
         ./configure \
           --prefix=../dist \
           --target-os=mingw32 \
+          --arch=x86_64 \
           --cross-prefix=x86_64-w64-mingw32- \
           --pkg-config-flags="--static" \
           --enable-shared \
