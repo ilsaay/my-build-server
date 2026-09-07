@@ -21,22 +21,34 @@ jobs:
         repository: 'GStreamer/cerbero'
         ref: '1.18'
 
-    - name: Install build dependencies
+    - name: Configure apt to assume yes and set non-interactive
       env:
         DEBIAN_FRONTEND: noninteractive
         TZ: Asia/Shanghai
       run: |
+        # 配置 apt 始终自动确认，避免 Cerbero 调用 apt 时出现交互
+        echo 'APT::Get::Assume-Yes "true";' > /etc/apt/apt.conf.d/99assumeyes
         apt update
+        # 预先安装 tzdata 并设置时区
         apt install -y tzdata
         ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
         dpkg-reconfigure --frontend noninteractive tzdata
+
+    - name: Install build dependencies
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        # 安装 Cerbero bootstrap 所需的所有依赖
+        # 这样 Cerbero 就不会再尝试安装它们，从而避免交互
         apt install -y \
-          python3 python3-pip python3-venv python3-distro \
-          git make autoconf automake libtool pkg-config \
-          mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
-          meson ninja-build cmake yasm nasm gettext \
-          libglib2.0-dev libffi-dev zlib1g-dev libbz2-dev \
-          liblzma-dev libxml2-dev libcurl4-openssl-dev libssl-dev
+          autotools-dev automake autoconf libtool g++ autopoint make cmake \
+          bison flex nasm pkg-config libxv-dev libx11-dev libx11-xcb-dev \
+          libpulse-dev python3-dev gettext build-essential libxext-dev \
+          libxi-dev x11proto-record-dev libxrender-dev libgl1-mesa-dev \
+          libxfixes-dev libxdamage-dev libxcomposite-dev libasound2-dev \
+          gperf wget libxtst-dev libxrandr-dev libglu1-mesa-dev \
+          libegl1-mesa-dev git xutils-dev intltool ccache python3-setuptools \
+          libssl-dev python3-pip python3-venv python3-distro
 
     - name: Setup Python virtual environment
       run: |
@@ -49,13 +61,13 @@ jobs:
     - name: Bootstrap Cerbero
       run: |
         source $CERBERO_VENV/bin/activate
-        # ✅ 移除 -v，bootstrap 不需要变体参数
+        # Bootstrap 不需要 -v
         python ./cerbero-uninstalled bootstrap
 
     - name: Build GStreamer 1.18 for Windows x64
       run: |
         source $CERBERO_VENV/bin/activate
-        # ✅ 在构建时指定变体 cross 和配置文件
+        # 构建时指定交叉编译变体
         python ./cerbero-uninstalled -c config/win64.cbc -v cross package gstreamer-1.0
 
     - name: Upload artifacts
