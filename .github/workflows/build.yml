@@ -3,20 +3,22 @@ name: Build GStreamer 1.18 for Windows x64 with MinGW
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
     - name: Checkout Cerbero 1.18 branch
       uses: actions/checkout@v4
       with:
         repository: 'GStreamer/cerbero'
         ref: '1.18'
-    
-    - name: Setup MSYS2 (MinGW)
+
+    - name: Setup MSYS2 with MinGW
       uses: msys2/setup-msys2@v2
       with:
         msystem: MINGW64
@@ -36,36 +38,56 @@ jobs:
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-yasm
           mingw-w64-x86_64-nasm
-    
+          mingw-w64-x86_64-gettext
+          mingw-w64-x86_64-glib2
+          mingw-w64-x86_64-libffi
+          mingw-w64-x86_64-zlib
+          mingw-w64-x86_64-bzip2
+          mingw-w64-x86_64-xz
+          mingw-w64-x86_64-libsoup
+          mingw-w64-x86_64-libxml2
+          mingw-w64-x86_64-curl
+          mingw-w64-x86_64-openssl
+
     - name: Setup Python virtual environment
       shell: msys2 {0}
       run: |
-        # 创建虚拟环境
-        python -m venv cerbero-venv
-        # 激活虚拟环境并升级 pip
-        source cerbero-venv/Scripts/activate
+        # 使用 virtualenv 创建虚拟环境（兼容性更好）
+        virtualenv cerbero-venv
+        
+        # 激活虚拟环境（MSYS2/MinGW 使用 bin/activate）
+        source cerbero-venv/bin/activate
+        
+        # 升级 pip 并安装构建工具
         pip install --upgrade pip
         pip install setuptools wheel
         
         # 保存虚拟环境路径供后续步骤使用
         echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
-    
+        
+        # 调试：确认 Python 环境
+        which python
+        python --version
+
     - name: Bootstrap Cerbero
       shell: msys2 {0}
       run: |
         # 激活虚拟环境
-        source $CERBERO_VENV/Scripts/activate
-        # 使用虚拟环境中的 Python 运行 Cerbero
+        source $CERBERO_VENV/bin/activate
+        
+        # 运行 Cerbero bootstrap
         python ./cerbero-uninstalled bootstrap -v
-    
+
     - name: Build GStreamer 1.18 with MinGW
       shell: msys2 {0}
       run: |
         # 激活虚拟环境
-        source $CERBERO_VENV/Scripts/activate
-        # 构建
+        source $CERBERO_VENV/bin/activate
+        
+        # 使用 MinGW 64位变体构建
+        # 注意：完整构建包含所有插件，如需精简请参考后续说明
         python ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
-    
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
