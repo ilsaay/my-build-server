@@ -33,14 +33,6 @@ jobs:
         tar -xjf ffmpeg-4.0.tar.bz2
         mv ffmpeg-4.0 ffmpeg-src
 
-    - name: Remove Windows Resource Files
-      run: |
-        cd ffmpeg-src
-        # 🌟 核心核武器：直接删除所有 .rc 文件！
-        # 这样 Makefile 就永远不会去调用会报错的 windres 了，绝对根治！
-        find . -name "*.rc" -delete
-      shell: bash
-
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
@@ -57,12 +49,17 @@ jobs:
           --disable-doc \
           --disable-ffplay \
           --disable-ffprobe
+          
+        # 🌟 核心杀手锏：直接修改生成的 config.mak
+        # 将 windres 的预处理器指定方式剥离，或直接让 windres 不使用复杂参数，
+        # 从而彻底避开新版 binutils 的解析崩溃 Bug。
+        echo "WINDRES=x86_64-w64-mingw32-windres" >> ffbuild/config.mak
+        sed -i 's/WINDRESFLAGS.*/WINDRESFLAGS=/' ffbuild/config.mak
       shell: bash
 
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        # 正常编译，由于没有了 .rc 文件，这里会一路畅通到底
         make -j$(nproc)
         make install
       shell: bash
