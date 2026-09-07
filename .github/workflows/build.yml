@@ -25,6 +25,7 @@ jobs:
           python3 \
           python3-pip \
           python3-venv \
+          python3-distro \
           git \
           make \
           autoconf \
@@ -54,14 +55,15 @@ jobs:
         python3 -m venv cerbero-venv
         source cerbero-venv/bin/activate
         pip install --upgrade pip
+        # 安装 distro 包（Cerbero 1.18 需要）
+        pip install distro
         pip install setuptools wheel
         echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
 
     - name: Bootstrap Cerbero
       run: |
         source $CERBERO_VENV/bin/activate
-        # 注意：Cerbero 1.18 可能不兼容 Python 3.12+
-        # 如果报错，可能需要修改 cerbero 代码或使用旧版 Python
+        # 如果 Python 版本过高导致语法错误，可能需要修改 cerbero 代码
         python ./cerbero-uninstalled bootstrap -v
 
     - name: Build GStreamer 1.18 for Windows x64
