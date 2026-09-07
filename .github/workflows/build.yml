@@ -15,6 +15,7 @@ jobs:
         with:
           msystem: MINGW64
           install: |
+            zip
             mingw-w64-x86_64-gstreamer
             mingw-w64-x86_64-gst-plugins-base
             mingw-w64-x86_64-gst-plugins-good
@@ -24,7 +25,7 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p dist/bin dist/lib
-          # 复制核心动态库和工具
+          # 复制核心二进制
           cp /mingw64/bin/gst-* dist/bin/ 2>/dev/null || true
           cp /mingw64/bin/libgstreamer-*.dll dist/bin/ 2>/dev/null || true
           cp /mingw64/bin/libgst*.dll dist/bin/ 2>/dev/null || true
@@ -37,7 +38,7 @@ jobs:
           cp /mingw64/bin/libpcre*.dll dist/bin/ 2>/dev/null || true
           # 复制插件
           cp /mingw64/lib/gstreamer-1.0/*.dll dist/lib/ 2>/dev/null || true
-          # 打包
+          # 打包（现在 zip 已安装）
           zip -r gstreamer-1.18-mingw64.zip dist/
 
       - name: Upload artifact
