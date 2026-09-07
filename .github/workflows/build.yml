@@ -40,6 +40,7 @@ jobs:
             --target-os=mingw32 \
             --arch=x86_64 \
             --cross-prefix=x86_64-w64-mingw32- \
+            --windres=x86_64-w64-mingw32-windres \
             --pkg-config=pkg-config \
             --disable-everything \
             --disable-network \
