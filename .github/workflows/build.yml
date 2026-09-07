@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04 # 🌟 关键魔法：使用老版本系统完美避开新版编译器的 Bug
 
     steps:
     - name: Checkout Repository
@@ -54,15 +54,15 @@ jobs:
     - name: Compile and Install
       run: |
         cd ffmpeg-src
-        make -j$(nproc) WINDRES=x86_64-w64-mingw32-windres
+        make -j$(nproc)
         make install
       shell: bash
 
     - name: Prepare Artifacts
       run: |
         mkdir -p ffmpeg-win64
-        cp -r dist/bin/*.exe ffmpeg-win64/
-        cp -r dist/bin/*.dll ffmpeg-win64/
+        # 优化打包逻辑，防止找不到文件报错
+        cp -r dist/bin ffmpeg-win64/
         cp -r dist/include ffmpeg-win64/
         cp -r dist/lib ffmpeg-win64/
 
