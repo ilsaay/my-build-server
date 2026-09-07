@@ -30,28 +30,41 @@ jobs:
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-python
           mingw-w64-x86_64-python-pip
+          mingw-w64-x86_64-python-virtualenv
           mingw-w64-x86_64-meson
           mingw-w64-x86_64-ninja
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-yasm
           mingw-w64-x86_64-nasm
     
-    - name: Install Python dependencies
+    - name: Setup Python virtual environment
       shell: msys2 {0}
       run: |
+        # 创建虚拟环境
+        python -m venv cerbero-venv
+        # 激活虚拟环境并升级 pip
+        source cerbero-venv/Scripts/activate
         pip install --upgrade pip
         pip install setuptools wheel
+        
+        # 保存虚拟环境路径供后续步骤使用
+        echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
     
     - name: Bootstrap Cerbero
       shell: msys2 {0}
       run: |
-        ./cerbero-uninstalled bootstrap -v
+        # 激活虚拟环境
+        source $CERBERO_VENV/Scripts/activate
+        # 使用虚拟环境中的 Python 运行 Cerbero
+        python ./cerbero-uninstalled bootstrap -v
     
     - name: Build GStreamer 1.18 with MinGW
       shell: msys2 {0}
       run: |
-        # 使用 MinGW 64位变体
-        ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
+        # 激活虚拟环境
+        source $CERBERO_VENV/Scripts/activate
+        # 构建
+        python ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
