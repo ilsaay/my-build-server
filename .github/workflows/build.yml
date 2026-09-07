@@ -1,4 +1,4 @@
-name: Build FFmpeg 4.0.0 for Windows x64 (Legacy GCC)
+name: Build FFmpeg 4.0.0 for Windows x64 (Minimal)
 
 on:
   push:
@@ -9,8 +9,8 @@ on:
 
 jobs:
   build-windows-cross:
-    # 使用 Ubuntu 20.04 (GCC 9)，完美适配 FFmpeg 4.0.0 时代的代码
-    runs-on: ubuntu-20.04
+    # 必须使用当前支持的 ubuntu-22.04 运行器
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
@@ -53,6 +53,7 @@ jobs:
             --ar=x86_64-w64-mingw32-ar \
             --nm=x86_64-w64-mingw32-nm \
             --pkg-config=pkg-config \
+            --disable-werror \
             --disable-everything \
             --disable-network \
             --disable-protocols \
