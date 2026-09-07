@@ -41,7 +41,6 @@ jobs:
           --pkg-config-flags="--static" \
           --enable-shared \
           --disable-static \
-          --disable-werror \
           --enable-gpl \
           --enable-version3 \
           --disable-doc \
