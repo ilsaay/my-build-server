@@ -1,4 +1,4 @@
-name: Build GStreamer 1.18 for Windows x64 with MinGW
+name: Build GStreamer 1.18 for Windows x64 (Cross-compile on Ubuntu)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout Cerbero 1.18 branch
@@ -18,80 +18,60 @@ jobs:
         repository: 'GStreamer/cerbero'
         ref: '1.18'
 
-    - name: Setup MSYS2 with MinGW
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        install: |
-          git
-          make
-          autoconf
-          automake
-          libtool
-          pkg-config
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-python
-          mingw-w64-x86_64-python-pip
-          mingw-w64-x86_64-python-virtualenv
-          mingw-w64-x86_64-meson
-          mingw-w64-x86_64-ninja
-          mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-yasm
-          mingw-w64-x86_64-nasm
-          mingw-w64-x86_64-gettext
-          mingw-w64-x86_64-glib2
-          mingw-w64-x86_64-libffi
-          mingw-w64-x86_64-zlib
-          mingw-w64-x86_64-bzip2
-          mingw-w64-x86_64-xz
-          mingw-w64-x86_64-libsoup3
-          mingw-w64-x86_64-libxml2
-          mingw-w64-x86_64-curl
-          mingw-w64-x86_64-openssl
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          python3 \
+          python3-pip \
+          python3-venv \
+          git \
+          make \
+          autoconf \
+          automake \
+          libtool \
+          pkg-config \
+          mingw-w64 \
+          gcc-mingw-w64-x86-64 \
+          g++-mingw-w64-x86-64 \
+          meson \
+          ninja-build \
+          cmake \
+          yasm \
+          nasm \
+          gettext \
+          libglib2.0-dev \
+          libffi-dev \
+          zlib1g-dev \
+          libbz2-dev \
+          liblzma-dev \
+          libxml2-dev \
+          libcurl4-openssl-dev \
+          libssl-dev
 
     - name: Setup Python virtual environment
-      shell: msys2 {0}
       run: |
-        # 创建虚拟环境
-        virtualenv cerbero-venv
-        
-        # 激活虚拟环境
+        python3 -m venv cerbero-venv
         source cerbero-venv/bin/activate
-        
-        # 安装 setuptools 和 wheel（不升级 pip，避免权限错误）
-        pip install --no-cache-dir setuptools wheel
-        
-        # 验证安装
-        echo "=== 虚拟环境信息 ==="
-        which python
-        python --version
-        pip --version
-        python -c "import setuptools; print('setuptools OK')"
-        python -c "import wheel; print('wheel OK')"
-        
-        # 保存虚拟环境路径供后续步骤使用
+        pip install --upgrade pip
+        pip install setuptools wheel
         echo "CERBERO_VENV=$(pwd)/cerbero-venv" >> $GITHUB_ENV
 
     - name: Bootstrap Cerbero
-      shell: msys2 {0}
       run: |
-        # 激活虚拟环境
         source $CERBERO_VENV/bin/activate
-        
-        # 运行 Cerbero bootstrap
+        # 注意：Cerbero 1.18 可能不兼容 Python 3.12+
+        # 如果报错，可能需要修改 cerbero 代码或使用旧版 Python
         python ./cerbero-uninstalled bootstrap -v
 
-    - name: Build GStreamer 1.18 with MinGW
-      shell: msys2 {0}
+    - name: Build GStreamer 1.18 for Windows x64
       run: |
-        # 激活虚拟环境
         source $CERBERO_VENV/bin/activate
-        
-        # 使用 MinGW 64位变体构建
-        python ./cerbero-uninstalled -c config/win64.cbc -v mingw package gstreamer-1.0
+        # 使用跨平台配置文件构建 Windows x64 目标
+        python ./cerbero-uninstalled -c config/win64.cbc -v cross package gstreamer-1.0
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: gstreamer-1.18-mingw-w64
+        name: gstreamer-1.18-windows-x64
         path: build/dist/
