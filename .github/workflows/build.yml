@@ -33,7 +33,8 @@ jobs:
             libtool \
             autoconf \
             automake \
-            libglib2.0-dev
+            libglib2.0-dev \
+            libiberty-dev
 
       - name: Download GTK2 Windows bundle (32-bit)
         run: |
@@ -72,7 +73,8 @@ jobs:
             --disable-socket \
             --disable-vte \
             CFLAGS="-O2 -I/opt/gtk2-win32/include -I/opt/gtk2-win32/include/gtk-2.0 -I/opt/gtk2-win32/include/glib-2.0 -I/opt/gtk2-win32/lib/glib-2.0/include" \
-            LDFLAGS="-L/opt/gtk2-win32/lib"
+            LDFLAGS="-L/opt/gtk2-win32/lib" \
+            LIBS="-liberty"
 
       - name: Build Geany
         run: |
