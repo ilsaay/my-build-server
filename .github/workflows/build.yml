@@ -50,8 +50,10 @@ jobs:
           --enable-version3 \
           --disable-doc \
           --disable-ffplay \
-          --enable-dynamic-loading \
-          --disable-ffprobe
+          --disable-ffprobe \
+          --enable-runtime-cpudetect \
+          --disable-swscale \
+          --disable-avfilter
       shell: bash
 
     - name: Compile and Install
