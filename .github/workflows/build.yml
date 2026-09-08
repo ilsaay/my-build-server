@@ -1,35 +1,32 @@
-name: Build Geany 1.24
+name: Build Geany
 
 on:
-  push:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout your repo (if source is in repo)
-        uses: actions/checkout@v4
-
-      # 如果 geany 源码在仓库里，就不需要下载；否则可以在这里下载解压
-      - name: Download and extract geany source
-        run: |
-          cd $HOME
-          wget https://download.geany.org/geany-1.24.tar.gz
-          tar xzf geany-1.24.tar.gz
-
-      - name: Install build tools
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake libtool intltool
+          sudo apt-get install -y \
+            build-essential \
+            autoconf \
+            automake \
+            libtool \
+            intltool \
+            pkg-config \
+            libgtk-3-dev
 
-      - name: Build geany
+      - name: Download Geany source
         run: |
-          cd $HOME/geany-1.24
-          ./configure
-          make
+          cd $HOME
+          wget https://download.geany.org/geany-1.38.tar.gz
+          tar xzf geany-1.38.tar.gz
 
-      - name: Install (optional)
+      - name: Build Geany
         run: |
-          cd $HOME/geany-1.24
-          sudo make install
+          cd $HOME/geany-1.38
+          ./configure --disable-html-docs --disable-pdf-docs
+          make -j2
