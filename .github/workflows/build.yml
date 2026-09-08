@@ -1,123 +1,74 @@
-name: Build FFmpeg 4.0.0 (Minimal + Hardware)
+name: Build FFmpeg 4.0 for Windows (Docker)
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    # 🌟 核心魔法：直接在旧版 Ubuntu 容器里编译！
+    # 这样里面的 GCC 和工具链会自动回到完美兼容 FFmpeg 4.0 的年代。
+    container: ubuntu:20.04
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            yasm \
-            nasm \
-            cmake \
-            git \
-            pkg-config \
-            libmp3lame-dev \
-            libfdk-aac-dev \
-            libmfx-dev \
-            libva-dev \
-            libdrm-dev \
-            libvdpau-dev
-      - name: Clone FFmpeg 4.0.0 source (tag n4.0)
-        run: |
-          git clone --branch n4.0 --depth 1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-4.0.0
-      - name: Configure FFmpeg
-        working-directory: ./ffmpeg-4.0.0
-        run: |
-          ./configure \
-            --disable-everything \
-            --disable-network \
-            --disable-protocols \
-            --enable-protocol=file \
-            --disable-decoders \
-            --enable-decoder=h264 \
-            --enable-decoder=mp3 \
-            --enable-decoder=mp2 \
-            --enable-decoder=aac \
-            --enable-decoder=wavpack \
-            --enable-decoder=flac \
-            --enable-decoder=pcm_s16le \
-            --enable-decoder=pcm_s24le \
-            --enable-decoder=pcm_f32le \
-            --disable-encoders \
-            --enable-encoder=h264_qsv \
-            --enable-encoder=h264_vaapi \
-            --enable-encoder=mp3 \
-            --enable-encoder=mp2 \
-            --enable-encoder=aac \
-            --enable-encoder=pcm_s16le \
-            --enable-encoder=flac \
-            --disable-demuxers \
-            --enable-demuxer=h264 \
-            --enable-demuxer=mov \
-            --enable-demuxer=matroska \
-            --enable-demuxer=mpegts \
-            --enable-demuxer=mp3 \
-            --enable-demuxer=aac \
-            --enable-demuxer=wav \
-            --enable-demuxer=flac \
-            --disable-muxers \
-            --enable-muxer=h264 \
-            --enable-muxer=mp4 \
-            --enable-muxer=matroska \
-            --enable-muxer=mpegts \
-            --enable-muxer=mp3 \
-            --enable-muxer=aac \
-            --enable-muxer=wav \
-            --enable-muxer=flac \
-            --disable-parsers \
-            --enable-parser=h264 \
-            --enable-parser=mpegaudio \
-            --enable-parser=aac \
-            --enable-parser=flac \
-            --disable-bsfs \
-            --enable-bsf=h264_mp4toannexb \
-            --disable-filters \
-            --disable-avdevice \
-            --disable-swscale \
-            --disable-avfilter \
-            --disable-postproc \
-            --disable-ffplay \
-            --disable-ffprobe \
-            --disable-doc \
-            --disable-htmlpages \
-            --disable-manpages \
-            --disable-podpages \
-            --disable-txtpages \
-            --disable-runtime-cpudetect \
-            --enable-pic \
-            --enable-shared \
-            --extra-cflags="-O2 -pipe" \
-            --enable-gpl \
-            --enable-nonfree \
-            --enable-libmfx \
-            --enable-vaapi \
-            --enable-libmp3lame \
-            --enable-dynamic-loading \
-            --enable-libfdk-aac
-      - name: Build FFmpeg
-        working-directory: ./ffmpeg-4.0.0
-        run: make -j$(nproc)
+    - name: Install Dependencies
+      run: |
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y \
+          build-essential \
+          yasm \
+          nasm \
+          pkg-config \
+          wget \
+          bzip2 \
+          mingw-w64 \
+          gcc-mingw-w64-x86-64 \
+          g++-mingw-w64-x86-64
+    - name: Download FFmpeg 4.0 Source
+      run: |
+        wget https://ffmpeg.org/releases/ffmpeg-4.0.tar.bz2
+        tar -xjf ffmpeg-4.0.tar.bz2
+        mv ffmpeg-4.0 ffmpeg-src
+    - name: Configure FFmpeg
+      run: |
+        cd ffmpeg-src
+        ./configure \
+          --prefix=../dist \
+          --target-os=mingw32 \
+          --arch=x86_64 \
+          --cross-prefix=x86_64-w64-mingw32- \
+          --pkg-config-flags="--static" \
+          --enable-shared \
+          --disable-static \
+          --enable-gpl \
+          --enable-version3 \
+          --disable-doc \
+          --disable-ffplay \
+          --enable-dynamic-loading \
+          --disable-ffprobe
+      shell: bash
 
-      - name: Install to temporary directory
-        working-directory: ./ffmpeg-4.0.0
-        run: |
-          make install DESTDIR=${{ github.workspace }}/ffmpeg-install
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ffmpeg-4.0.0-hardware
-          path: ${{ github.workspace }}/ffmpeg-install/usr/local/
+    - name: Compile and Install
+      run: |
+        cd ffmpeg-src
+        make -j$(nproc)
+        make install
+      shell: bash
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir -p ffmpeg-win64
+        cp -r dist/bin ffmpeg-win64/
+        cp -r dist/include ffmpeg-win64/
+        cp -r dist/lib ffmpeg-win64/
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ffmpeg-4.0-windows-x64
+        path: ffmpeg-win64/
