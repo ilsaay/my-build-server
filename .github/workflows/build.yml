@@ -1,4 +1,4 @@
-name: Build Geany 1.24 Windows Portable
+name: Build Geany 1.24 Windows Portable (MSYS2)
 
 on:
   workflow_dispatch:
@@ -8,63 +8,58 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:20.04
-    env:
-      DEBIAN_FRONTEND: noninteractive
-      TZ: Etc/UTC
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y \
-            gcc-mingw-w64-i686 \
-            g++-mingw-w64-i686 \
-            binutils-mingw-w64-i686 \
-            make \
-            wget \
-            unzip \
-            xz-utils \
-            bzip2 \
-            pkg-config \
-            gettext \
-            intltool \
-            libtool \
-            autoconf \
-            automake \
-            libglib2.0-dev \
-            libiberty-dev
-
-      - name: Download GTK2 Windows bundle (32-bit)
-        run: |
-          wget https://download.gnome.org/binaries/win32/gtk+/2.24/gtk+-bundle_2.24.10-20120208_win32.zip
-          unzip -q gtk+-bundle_2.24.10-20120208_win32.zip -d /opt/gtk2-win32
-          echo "PKG_CONFIG_PATH=/opt/gtk2-win32/lib/pkgconfig" >> $GITHUB_ENV
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          install: >-
+            base-devel
+            mingw-w64-i686-toolchain
+            mingw-w64-i686-gtk2
+            mingw-w64-i686-gettext
+            mingw-w64-i686-libiconv
+            mingw-w64-i686-pkg-config
+            git
+            wget
+            unzip
+            zip
 
       - name: Download Geany 1.24 source
         run: |
-          wget https://download.geany.org/geany-1.24.1.tar.bz2 && tar xjf geany-1.24.1.tar.bz2 && mv geany-1.24.1 geany-1.24 && exit 0
-          wget https://download.geany.org/geany-1.24.0.tar.bz2 && tar xjf geany-1.24.0.tar.bz2 && mv geany-1.24.0 geany-1.24 && exit 0
-          wget https://github.com/geany/geany/archive/refs/tags/1.24.0.tar.gz && tar xzf 1.24.0.tar.gz && mv geany-1.24.0 geany-1.24 && exit 0
-          echo "All download attempts failed"
-          exit 1
+          cd $HOME
+          wget https://download.geany.org/geany-1.24.1.tar.bz2 || \
+          wget https://download.geany.org/geany-1.24.0.tar.bz2 || \
+          wget https://github.com/geany/geany/archive/refs/tags/1.24.0.tar.gz
+          # 解压（处理两种压缩格式）
+          if [ -f geany-1.24.1.tar.bz2 ]; then
+            tar xjf geany-1.24.1.tar.bz2
+            mv geany-1.24.1 geany-1.24
+          elif [ -f geany-1.24.0.tar.bz2 ]; then
+            tar xjf geany-1.24.0.tar.bz2
+            mv geany-1.24.0 geany-1.24
+          elif [ -f 1.24.0.tar.gz ]; then
+            tar xzf 1.24.0.tar.gz
+            mv geany-1.24.0 geany-1.24
+          fi
 
-      - name: Generate configure if missing
+      - name: Autogen (if needed)
         run: |
-          cd geany-1.24
+          cd $HOME/geany-1.24
           if [ ! -f configure ]; then
-            echo "configure not found, running autogen.sh"
             NOCONFIGURE=1 ./autogen.sh
           fi
 
-      - name: Configure Geany (dynamic, portable)
+      - name: Configure
         run: |
-          cd geany-1.24
+          cd $HOME/geany-1.24
           ./configure \
             --host=i686-w64-mingw32 \
-            --target=i686-w64-mingw32 \
-            --build=x86_64-linux-gnu \
+            --build=x86_64-w64-mingw32 \
             --disable-static \
             --enable-shared \
             --disable-html-docs \
@@ -72,29 +67,36 @@ jobs:
             --disable-api-docs \
             --disable-socket \
             --disable-vte \
-            CFLAGS="-O2 -I/opt/gtk2-win32/include -I/opt/gtk2-win32/include/gtk-2.0 -I/opt/gtk2-win32/include/glib-2.0 -I/opt/gtk2-win32/lib/glib-2.0/include" \
-            LDFLAGS="-L/opt/gtk2-win32/lib" \
-            LIBS="-liberty"
+            CFLAGS="-O2"
 
-      - name: Build Geany
+      - name: Build
         run: |
-          cd geany-1.24
+          cd $HOME/geany-1.24
           make -j$(nproc)
 
-      - name: Create portable directory
+      - name: Collect Portable Files
+        shell: pwsh
         run: |
-          mkdir -p portable/{bin,lib,share,etc}
-          
-          cp geany-1.24/src/geany.exe portable/bin/ || true
-          cp -r geany-1.24/data portable/share/geany || true
-          mkdir -p portable/share/geany/plugins
-          
-          cp /opt/gtk2-win32/bin/*.dll portable/bin/ || true
-          cp -r /opt/gtk2-win32/etc portable/ || true
-          cp -r /opt/gtk2-win32/lib portable/ || true
-          cp -r /opt/gtk2-win32/share portable/ || true
-          
-          cat > portable/启动Geany.bat << 'EOF'
+          $portable = "$env:USERPROFILE\portable"
+          $geanySrc = "$env:USERPROFILE\geany-1.24"
+          $msys2 = "C:\msys64\mingw32"   # 根据实际 MSYS2 安装路径调整
+
+          New-Item -ItemType Directory -Force -Path $portable\bin, $portable\lib, $portable\share, $portable\etc
+
+          # Geany 主程序
+          Copy-Item "$geanySrc\src\geany.exe" $portable\bin\ -ErrorAction SilentlyContinue
+
+          # Geany 数据文件
+          Copy-Item "$geanySrc\data" $portable\share\geany -Recurse -ErrorAction SilentlyContinue
+
+          # GTK2 DLL 和资源
+          Copy-Item "$msys2\bin\*.dll" $portable\bin\ -ErrorAction SilentlyContinue
+          Copy-Item "$msys2\etc" $portable\ -Recurse -ErrorAction SilentlyContinue
+          Copy-Item "$msys2\lib" $portable\ -Recurse -ErrorAction SilentlyContinue
+          Copy-Item "$msys2\share" $portable\ -Recurse -ErrorAction SilentlyContinue
+
+          # 启动脚本
+          @"
           @echo off
           cd /d "%~dp0"
           set PATH=%~dp0bin;%~dp0lib;%PATH%
@@ -102,13 +104,13 @@ jobs:
           set GTK_EXE_PREFIX=%~dp0
           set GTK_DATA_PREFIX=%~dp0
           start "" "%~dp0bin\geany.exe" %*
-          EOF
-          
-          find portable -type f | head -50
-          du -sh portable
+          "@ | Out-File -FilePath "$portable\启动Geany.bat" -Encoding ASCII
 
-      - name: Upload portable artifact
+          # 打包成 zip
+          Compress-Archive -Path $portable\* -DestinationPath "$env:USERPROFILE\geany-1.24-portable.zip"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: geany-1.24-windows-portable
-          path: portable/
+          path: ${{ env.USERPROFILE }}\geany-1.24-portable.zip
