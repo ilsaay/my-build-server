@@ -42,8 +42,12 @@ jobs:
 
       - name: Download Geany 1.24 source
         run: |
-          wget https://download.geany.org/geany-1.24.tar.bz2
-          tar xjf geany-1.24.tar.bz2
+          # 尝试多个可能的下载路径
+          wget https://download.geany.org/geany-1.24.1.tar.bz2 && tar xjf geany-1.24.1.tar.bz2 && mv geany-1.24.1 geany-1.24 && exit 0
+          wget https://download.geany.org/geany-1.24.0.tar.bz2 && tar xjf geany-1.24.0.tar.bz2 && mv geany-1.24.0 geany-1.24 && exit 0
+          wget https://github.com/geany/geany/archive/refs/tags/1.24.0.tar.gz && tar xzf 1.24.0.tar.gz && mv geany-1.24.0 geany-1.24 && exit 0
+          echo "All download attempts failed"
+          exit 1
 
       - name: Configure Geany (dynamic, portable)
         run: |
