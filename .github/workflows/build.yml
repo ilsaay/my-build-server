@@ -37,7 +37,7 @@ jobs:
       - name: Configure FFmpeg
         working-directory: ./ffmpeg-4.0.0
         run: |
-          ./configure \
+          ./configure
             --disable-everything \
             --disable-network \
             --disable-protocols \
@@ -106,7 +106,10 @@ jobs:
             --enable-libmfx \
             --enable-vaapi \
             --enable-libmp3lame \
-            --enable-libfdk-aac \
+            --enable-libfdk-aac
+            --disable-swscale
+            --disable-avfilter
+            --disable-postproc
             --enable-dynamic-loading
       - name: Build FFmpeg
         working-directory: ./ffmpeg-4.0.0
