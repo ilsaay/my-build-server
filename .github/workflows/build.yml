@@ -1,32 +1,43 @@
-name: Build Geany
+name: Build Geany Windows Portable
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
     steps:
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            autoconf \
-            automake \
-            libtool \
-            intltool \
-            pkg-config \
-            libgtk-3-dev
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-autotools
+            git
+            zip
 
-      - name: Download Geany source
+      - name: Checkout Geany
         run: |
-          cd $HOME
-          wget https://download.geany.org/geany-1.38.tar.gz
-          tar xzf geany-1.38.tar.gz
+          git clone --depth 1 https://github.com/geany/geany.git
+          cd geany
+          ./autogen.sh
+          ./configure --prefix=$PWD/build
+          make
+          make install
 
-      - name: Build Geany
+      - name: Package portable exe
         run: |
-          cd $HOME/geany-1.38
-          ./configure --disable-html-docs --disable-pdf-docs
-          make -j2
+          cd geany/build/bin
+          zip -r geany-portable.zip geany.exe
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: geany-portable-exe
+          path: geany/build/bin/geany.exe
