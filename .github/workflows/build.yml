@@ -49,6 +49,14 @@ jobs:
           echo "All download attempts failed"
           exit 1
 
+      - name: Generate configure if missing
+        run: |
+          cd geany-1.24
+          if [ ! -f configure ]; then
+            echo "configure not found, running autogen.sh"
+            NOCONFIGURE=1 ./autogen.sh
+          fi
+
       - name: Configure Geany (dynamic, portable)
         run: |
           cd geany-1.24
