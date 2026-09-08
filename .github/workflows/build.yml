@@ -1,4 +1,4 @@
-name: Build mpg123 1.25.13 Windows x86
+name: Build Geany 1.24 Windows Portable
 
 on:
   workflow_dispatch:
@@ -24,48 +24,85 @@ jobs:
             binutils-mingw-w64-i686 \
             make \
             wget \
+            unzip \
             xz-utils \
-            pkg-config
+            bzip2 \
+            pkg-config \
+            gettext \
+            intltool \
+            libtool \
+            autoconf \
+            automake
 
-      - name: Download mpg123 1.25.13 source
+      - name: Download GTK2 Windows bundle (32-bit)
         run: |
-          wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
-          tar xjf mpg123-1.25.13.tar.bz2
+          wget https://download.gnome.org/binaries/win32/gtk+/2.24/gtk+-bundle_2.24.10-20120208_win32.zip
+          unzip -q gtk+-bundle_2.24.10-20120208_win32.zip -d /opt/gtk2-win32
+          echo "PKG_CONFIG_PATH=/opt/gtk2-win32/lib/pkgconfig" >> $GITHUB_ENV
 
-      - name: Configure (cross-compile for Windows x86)
+      - name: Download Geany 1.24 source
         run: |
-          cd mpg123-1.25.13
+          wget https://download.geany.org/geany-1.24.tar.bz2
+          tar xjf geany-1.24.tar.bz2
+
+      - name: Configure Geany (dynamic, portable)
+        run: |
+          cd geany-1.24
           ./configure \
             --host=i686-w64-mingw32 \
             --target=i686-w64-mingw32 \
             --build=x86_64-linux-gnu \
-            --disable-shared \
-            --enable-static \
-            --disable-network \
-            --disable-ipv6 \
-            --with-cpu=generic \
-            --with-audio=win32 \
-            --with-default-audio=win32 \
-            --disable-lfs \
-            CFLAGS="-O2 -s -static" \
-            LDFLAGS="-static"
+            --disable-static \
+            --enable-shared \
+            --disable-html-docs \
+            --disable-pdf-docs \
+            --disable-api-docs \
+            --disable-socket \
+            --disable-vte \
+            CFLAGS="-O2 -I/opt/gtk2-win32/include -I/opt/gtk2-win32/include/gtk-2.0 -I/opt/gtk2-win32/include/glib-2.0 -I/opt/gtk2-win32/lib/glib-2.0/include" \
+            LDFLAGS="-L/opt/gtk2-win32/lib"
 
-      - name: Build
+      - name: Build Geany
         run: |
-          cd mpg123-1.25.13
+          cd geany-1.24
           make -j$(nproc)
 
-      - name: Collect artifacts
+      - name: Create portable directory
         run: |
-          mkdir -p artifacts
-          cp mpg123-1.25.13/src/mpg123.exe artifacts/ || true
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/ || true
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.dll.a artifacts/ || true
-          find mpg123-1.25.13 -name "*.dll" -exec cp {} artifacts/ \; || true
-          ls -la artifacts/
+          mkdir -p portable/{bin,lib,share,etc}
+          
+          # 复制 Geany 可执行文件
+          cp geany-1.24/src/geany.exe portable/bin/ || true
+          
+          # 复制 Geany 数据文件
+          cp -r geany-1.24/data portable/share/geany || true
+          mkdir -p portable/share/geany/plugins
+          
+          # 复制 GTK2 运行时 DLL
+          cp /opt/gtk2-win32/bin/*.dll portable/bin/ || true
+          
+          # 复制 GTK2 配置和资源
+          cp -r /opt/gtk2-win32/etc portable/ || true
+          cp -r /opt/gtk2-win32/lib portable/ || true
+          cp -r /opt/gtk2-win32/share portable/ || true
+          
+          # 创建便携版启动脚本
+          cat > portable/启动Geany.bat << 'EOF'
+          @echo off
+          cd /d "%~dp0"
+          set PATH=%~dp0bin;%~dp0lib;%PATH%
+          set GTK2_RC_FILES=%~dp0etc\gtk-2.0\gtkrc
+          set GTK_EXE_PREFIX=%~dp0
+          set GTK_DATA_PREFIX=%~dp0
+          start "" "%~dp0bin\geany.exe" %*
+          EOF
+          
+          # 显示结构
+          find portable -type f | head -50
+          du -sh portable
 
-      - name: Upload artifact
+      - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mpg123-1.25.13-windows-x86
-          path: artifacts/
+          name: geany-1.24-windows-portable
+          path: portable/
