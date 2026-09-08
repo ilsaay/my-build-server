@@ -49,6 +49,7 @@ jobs:
           --enable-gpl \
           --enable-version3 \
           --disable-doc \
+          --enable-ffmpeg \
           --disable-ffplay \
           --disable-ffprobe \
           --enable-runtime-cpudetect \
