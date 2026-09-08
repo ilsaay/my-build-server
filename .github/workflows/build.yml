@@ -106,8 +106,8 @@ jobs:
             --enable-libmfx \
             --enable-vaapi \
             --enable-libmp3lame \
-            --enable-libfdk-aac \
-            --enable-dynamic-loading
+            --enable-dynamic-loading \
+            --enable-libfdk-aac
       - name: Build FFmpeg
         working-directory: ./ffmpeg-4.0.0
         run: make -j$(nproc)
