@@ -32,7 +32,8 @@ jobs:
             intltool \
             libtool \
             autoconf \
-            automake
+            automake \
+            libglib2.0-dev
 
       - name: Download GTK2 Windows bundle (32-bit)
         run: |
@@ -42,7 +43,6 @@ jobs:
 
       - name: Download Geany 1.24 source
         run: |
-          # 尝试多个可能的下载路径
           wget https://download.geany.org/geany-1.24.1.tar.bz2 && tar xjf geany-1.24.1.tar.bz2 && mv geany-1.24.1 geany-1.24 && exit 0
           wget https://download.geany.org/geany-1.24.0.tar.bz2 && tar xjf geany-1.24.0.tar.bz2 && mv geany-1.24.0 geany-1.24 && exit 0
           wget https://github.com/geany/geany/archive/refs/tags/1.24.0.tar.gz && tar xzf 1.24.0.tar.gz && mv geany-1.24.0 geany-1.24 && exit 0
@@ -83,22 +83,15 @@ jobs:
         run: |
           mkdir -p portable/{bin,lib,share,etc}
           
-          # 复制 Geany 可执行文件
           cp geany-1.24/src/geany.exe portable/bin/ || true
-          
-          # 复制 Geany 数据文件
           cp -r geany-1.24/data portable/share/geany || true
           mkdir -p portable/share/geany/plugins
           
-          # 复制 GTK2 运行时 DLL
           cp /opt/gtk2-win32/bin/*.dll portable/bin/ || true
-          
-          # 复制 GTK2 配置和资源
           cp -r /opt/gtk2-win32/etc portable/ || true
           cp -r /opt/gtk2-win32/lib portable/ || true
           cp -r /opt/gtk2-win32/share portable/ || true
           
-          # 创建便携版启动脚本
           cat > portable/启动Geany.bat << 'EOF'
           @echo off
           cd /d "%~dp0"
@@ -109,7 +102,6 @@ jobs:
           start "" "%~dp0bin\geany.exe" %*
           EOF
           
-          # 显示结构
           find portable -type f | head -50
           du -sh portable
 
