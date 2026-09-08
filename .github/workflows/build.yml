@@ -20,14 +20,17 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build SciTE
+      - name: Build SciTE.exe
         shell: cmd
         run: |
           cd scite\win32
-          nmake -f scite.mak
+          nmake -f scite.mak ..\bin\SciTE.exe
 
       - name: Upload portable exe
         uses: actions/upload-artifact@v4
         with:
           name: SciTE-portable
-          path: scite\bin
+          path: |
+            scite\bin\SciTE.exe
+            scite\bin\*.dll
+            scite\bin\*.properties
