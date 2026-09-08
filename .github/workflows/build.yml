@@ -1,4 +1,4 @@
-name: Build Geany Windows Portable
+name: Build SciTE Portable
 
 on:
   workflow_dispatch:
@@ -6,38 +6,38 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
+
     steps:
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            base-devel
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-gtk3
-            mingw-w64-x86_64-autotools
-            git
-            zip
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Checkout Geany
+      - name: Download SciTE stable source
         run: |
-          git clone --depth 1 https://github.com/geany/geany.git
-          cd geany
-          ./autogen.sh
-          ./configure --prefix=$PWD/build
-          make
-          make install
+          curl -L -o scite.zip https://www.scintilla.org/scite553.zip
+          tar -xf scite.zip
+          dir
 
-      - name: Package portable exe
+      - name: Setup MSYS2 or use MSVC
         run: |
-          cd geany/build/bin
-          zip -r geany-portable.zip geany.exe
+          # Windows runner 自带 Visual Studio，可直接用 nmake
+          dir scite\win32
 
-      - name: Upload exe
+      - name: Build SciTE (MSVC)
+        shell: cmd
+        run: |
+          cd scite\win32
+          nmake -f scite.mak
+
+      - name: Prepare portable folder
+        shell: cmd
+        run: |
+          mkdir scite-portable
+          copy scite\bin\SciTE.exe scite-portable\
+          xcopy /E /I scite\bin\*.dll scite-portable\
+          xcopy /E /I scite\bin\*.properties scite-portable\
+
+      - name: Upload portable exe
         uses: actions/upload-artifact@v4
         with:
-          name: geany-portable-exe
-          path: geany/build/bin/geany.exe
+          name: SciTE-portable
+          path: scite-portable
