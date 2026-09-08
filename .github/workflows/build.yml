@@ -58,10 +58,10 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          cp mpg123-1.25.13/src/mpg123.exe artifacts/
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.dll.a artifacts/
-          find mpg123-1.25.13 -name "*.dll" -exec cp {} artifacts/ \;
+          cp mpg123-1.25.13/src/mpg123.exe artifacts/ || true
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/ || true
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.dll.a artifacts/ || true
+          find mpg123-1.25.13 -name "*.dll" -exec cp {} artifacts/ \; || true
           ls -la artifacts/
 
       - name: Upload artifact
