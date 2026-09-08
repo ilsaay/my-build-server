@@ -8,8 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 🌟 核心魔法：直接在旧版 Ubuntu 容器里编译！
-    # 这样里面的 GCC 和工具链会自动回到完美兼容 FFmpeg 4.0 的年代。
     container: ubuntu:20.04
 
     steps:
@@ -30,11 +28,13 @@ jobs:
           mingw-w64 \
           gcc-mingw-w64-x86-64 \
           g++-mingw-w64-x86-64
+
     - name: Download FFmpeg 4.0 Source
       run: |
         wget https://ffmpeg.org/releases/ffmpeg-4.0.tar.bz2
         tar -xjf ffmpeg-4.0.tar.bz2
         mv ffmpeg-4.0 ffmpeg-src
+
     - name: Configure FFmpeg
       run: |
         cd ffmpeg-src
@@ -55,13 +55,26 @@ jobs:
           --enable-runtime-cpudetect \
           --disable-swscale \
           --disable-avfilter
+        echo "=== FFMPEG config check ==="
+        grep "CONFIG_FFMPEG" config.h
+        grep "FFMPEG" config.mak | head -5
       shell: bash
 
-    - name: Compile and Install
+    - name: Compile
       run: |
         cd ffmpeg-src
         make -j$(nproc)
+        echo "=== Checking ffmpeg.exe ==="
+        ls -la ffmpeg.exe
+        file ffmpeg.exe
+      shell: bash
+
+    - name: Install
+      run: |
+        cd ffmpeg-src
         make install
+        echo "=== Installed binaries ==="
+        ls -la ../dist/bin/
       shell: bash
 
     - name: Prepare Artifacts
@@ -70,6 +83,9 @@ jobs:
         cp -r dist/bin ffmpeg-win64/
         cp -r dist/include ffmpeg-win64/
         cp -r dist/lib ffmpeg-win64/
+        echo "=== Final artifact contents ==="
+        find ffmpeg-win64 -type f | sort
+
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
