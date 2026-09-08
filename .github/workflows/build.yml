@@ -12,32 +12,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download SciTE stable source
+        shell: cmd
         run: |
           curl -L -o scite.zip https://www.scintilla.org/scite553.zip
           tar -xf scite.zip
-          dir
 
-      - name: Setup MSYS2 or use MSVC
-        run: |
-          # Windows runner 自带 Visual Studio，可直接用 nmake
-          dir scite\win32
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build SciTE (MSVC)
+      - name: Build SciTE
         shell: cmd
         run: |
           cd scite\win32
           nmake -f scite.mak
 
-      - name: Prepare portable folder
-        shell: cmd
-        run: |
-          mkdir scite-portable
-          copy scite\bin\SciTE.exe scite-portable\
-          xcopy /E /I scite\bin\*.dll scite-portable\
-          xcopy /E /I scite\bin\*.properties scite-portable\
-
       - name: Upload portable exe
         uses: actions/upload-artifact@v4
         with:
           name: SciTE-portable
-          path: scite-portable
+          path: scite\bin
