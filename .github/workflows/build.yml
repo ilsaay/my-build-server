@@ -1,4 +1,4 @@
-name: Build Geany 1.24 Windows Portable (MSYS2)
+name: Build Geany 1.24 Windows Portable (64-bit)
 
 on:
   workflow_dispatch:
@@ -16,14 +16,14 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW32
+          msystem: MINGW64
           install: >-
             base-devel
-            mingw-w64-i686-toolchain
-            mingw-w64-i686-gtk2
-            mingw-w64-i686-gettext
-            mingw-w64-i686-libiconv
-            mingw-w64-i686-pkg-config
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-gtk2
+            mingw-w64-x86_64-gettext
+            mingw-w64-x86_64-libiconv
+            mingw-w64-x86_64-pkg-config
             git
             wget
             unzip
@@ -58,7 +58,7 @@ jobs:
         run: |
           cd $HOME/geany-1.24
           ./configure \
-            --host=i686-w64-mingw32 \
+            --host=x86_64-w64-mingw32 \
             --build=x86_64-w64-mingw32 \
             --disable-static \
             --enable-shared \
@@ -79,7 +79,7 @@ jobs:
         run: |
           $portable = "$env:USERPROFILE\portable"
           $geanySrc = "$env:USERPROFILE\geany-1.24"
-          $msys2 = "C:\msys64\mingw32"   # 根据实际 MSYS2 安装路径调整
+          $msys2 = "C:\msys64\mingw64"   # 根据实际 MSYS2 安装路径调整
 
           New-Item -ItemType Directory -Force -Path $portable\bin, $portable\lib, $portable\share, $portable\etc
 
@@ -112,5 +112,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: geany-1.24-windows-portable
+          name: geany-1.24-windows-portable-x64
           path: ${{ env.USERPROFILE }}\geany-1.24-portable.zip
