@@ -1,7 +1,7 @@
 name: Build mpg123 1.25.13 Windows x86
 
 on:
-  workflow_dispatch:          # 手动触发
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -10,7 +10,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: ubuntu:20.04      # 用旧一点的 Ubuntu，工具链更兼容老代码
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
     steps:
       - name: Install dependencies
         run: |
@@ -41,8 +44,8 @@ jobs:
             --disable-network \
             --disable-ipv6 \
             --with-cpu=generic \
-            --with-audio=win32_wasapi \
-            --with-default-audio=win32_wasapi \
+            --with-audio=win32 \
+            --with-default-audio=win32 \
             --disable-lfs \
             CFLAGS="-O2 -s -static" \
             LDFLAGS="-static"
@@ -55,11 +58,11 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          cp mpg123-1.25.13/src/mpg123.exe artifacts/       # 命令行播放器
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/   # 静态库
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.dll.a artifacts/ # 导入库
-          # 如果有生成的 DLL 也复制
+          cp mpg123-1.25.13/src/mpg123.exe artifacts/
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.dll.a artifacts/
           find mpg123-1.25.13 -name "*.dll" -exec cp {} artifacts/ \;
+          ls -la artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
