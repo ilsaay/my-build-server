@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # 改为 latest，更快分配
+    runs-on: ubuntu-latest
     
     steps:
     - name: Install dependencies
@@ -25,34 +25,69 @@ jobs:
         wget https://github.com/mruby/mruby/archive/refs/tags/1.4.0.tar.gz
         tar -xzf 1.4.0.tar.gz
         mv mruby-1.4.0 mruby
+        cd mruby
+        ls -la
     
-    - name: Create config
+    - name: Create proper build config
       run: |
         cd mruby
-        cat > cross_config.rb << 'EOF'
-        MRuby::CrossBuild.new('windows') do |conf|
+        # 先测试默认编译
+        cat > build_config.rb << 'EOF'
+        MRuby::Build.new do |conf|
           toolchain :gcc
-          conf.cc.command = 'x86_64-w64-mingw32-gcc'
-          conf.linker.command = 'x86_64-w64-mingw32-gcc'
-          conf.archiver.command = 'x86_64-w64-mingw32-ar'
           conf.gembox 'default'
           conf.gem :core => 'mruby-bin-mruby'
           conf.gem :core => 'mruby-bin-mirb'
         end
         EOF
     
-    - name: Build
+    - name: Build mruby (native first)
+      run: |
+        cd mruby
+        make
+    
+    - name: Create cross-compile config for Windows
+      run: |
+        cd mruby
+        cat > cross_config.rb << 'EOF'
+        MRuby::CrossBuild.new('windows-x64') do |conf|
+          toolchain :gcc
+          
+          conf.cc.command = 'x86_64-w64-mingw32-gcc'
+          conf.cxx.command = 'x86_64-w64-mingw32-g++'
+          conf.linker.command = 'x86_64-w64-mingw32-gcc'
+          conf.archiver.command = 'x86_64-w64-mingw32-ar'
+          
+          conf.gembox 'default'
+          conf.gem :core => 'mruby-bin-mruby'
+          conf.gem :core => 'mruby-bin-mirb'
+          
+          conf.cc.flags = ['-O2', '-Wall']
+          conf.linker.flags = ['-static']
+        end
+        EOF
+    
+    - name: Build mruby for Windows
       run: |
         cd mruby
         make MRUBY_CONFIG=cross_config.rb
+    
+    - name: Find Windows binaries
+      run: |
+        cd mruby
+        find build -name "*.exe" -exec file {} \;
+        ls -la build/windows-x64/bin/ 2>/dev/null || true
     
     - name: Package
       run: |
         cd mruby
         mkdir -p ../mruby-win
-        cp build/windows/bin/*.exe ../mruby-win/ 2>/dev/null || true
+        cp build/windows-x64/bin/*.exe ../mruby-win/ 2>/dev/null || true
+        cp -r build/windows-x64/lib ../mruby-win/ 2>/dev/null || true
+        cp -r include ../mruby-win/ 2>/dev/null || true
         cd ..
         zip -r mruby-win64.zip mruby-win/
+        ls -la mruby-win64.zip
     
     - name: Upload
       uses: actions/upload-artifact@v4
