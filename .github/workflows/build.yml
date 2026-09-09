@@ -1,67 +1,63 @@
-# .github/workflows/build-gcc2723.yml
-name: Build GCC 2.7.2.3
+# .github/workflows/build-gcc-msys2.yml
+name: Build GCC 2.7.2.3 with MSYS2
 
 on:
   workflow_dispatch:
-    inputs:
-      target_os:
-        description: 'Target OS'
-        required: true
-        default: 'linux'
-        type: choice
-        options:
-          - linux
-          - windows-msys2
-          - windows-cygwin
 
 jobs:
-  build-linux:
-    if: github.event.inputs.target_os == 'linux'
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Install deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential wget texinfo
-      
-      - name: Download GCC
-        run: |
-          wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
-          tar -xzf gcc-2.7.2.3.tar.gz
-      
-      - name: Configure and Build
-        run: |
-          cd gcc-2.7.2.3
-          ./configure --enable-languages=c --prefix=$PWD/install
-          make -j2
-          make install
-      
-      - name: Upload
-        uses: actions/upload-artifact@v3
-        with:
-          name: gcc-2723-linux
-          path: gcc-2.7.2.3/install
-
-  build-windows:
-    if: github.event.inputs.target_os == 'windows-msys2'
+  build:
     runs-on: windows-latest
+    
     steps:
-      - uses: msys2/setup-msys2@v2
-        with:
-          install: base-devel wget tar
-      
-      - name: Build in MSYS2
-        shell: msys2 {0}
-        run: |
-          wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
-          tar -xzf gcc-2.7.2.3.tar.gz
-          cd gcc-2.7.2.3
-          ./configure --enable-languages=c --prefix=$PWD/install
-          make -j2
-          make install
-      
-      - name: Upload
-        uses: actions/upload-artifact@v3
-        with:
-          name: gcc-2723-windows
-          path: gcc-2.7.2.3/install
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-toolchain
+          wget
+          tar
+          make
+          gcc
+          
+    - name: Download GCC 2.7.2.3 source
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE
+        wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
+        tar -xzf gcc-2.7.2.3.tar.gz
+        cd gcc-2.7.2.3
+    
+    - name: Configure GCC
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE/gcc-2.7.2.3
+        ./configure \
+          --enable-languages=c \
+          --disable-shared \
+          --disable-threads \
+          --disable-nls
+    
+    - name: Build GCC
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE/gcc-2.7.2.3
+        make -j2
+    
+    - name: Install GCC
+      shell: msys2 {0}
+      run: |
+        cd $GITHUB_WORKSPACE/gcc-2.7.2.3
+        make install DESTDIR=$GITHUB_WORKSPACE/install
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4  # 升级到 v4
+      with:
+        name: gcc-2723-windows
+        path: install/
+        compression-level: 6
