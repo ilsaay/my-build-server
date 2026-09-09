@@ -1,4 +1,4 @@
-name: Build TinyCC 0.9.23 (32-bit XP-11)
+name: Build TinyCC 0.9.23 (Windows Native 32-bit)
 
 on:
   push:
@@ -7,34 +7,35 @@ on:
 
 jobs:
   build-win32:
-    runs-on: ubuntu-latest
+    # 切换至 Windows 运行者，使编译出来的 tcc.exe 可以直接在构建中运行
+    runs-on: windows-latest
 
     steps:
-      - name: 安装 MinGW32 交叉编译工具链
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-i686 make zip git
+      - name: 设置 MSYS2 32位编译环境
+        uses: msys2/setup-msys2@v2
+        with:
+          msys2-location: C:\msys64
+          update: true
+          # 安装 32 位 MinGW 工具链、make 和 git
+          install: git make mingw-w64-i686-toolchain
 
       - name: 从 GitHub 下载 TinyCC 0.9.23 源码
+        shell: msys2 {0}
         run: |
           git clone --depth 1 --branch release_0_9_23 https://github.com/TinyCC/tinycc.git tcc-0.9.23
 
-      - name: 编译 TinyCC (Windows XP - 11 32位)
+      - name: 配置并编译 TinyCC (Windows XP - 11 32位)
+        shell: msys2 {0}
         run: |
           cd tcc-0.9.23
-          
-          # 1. 将 --cpu=i386 修改为 --cpu=x86
-          ./configure --cpu=x86 --cross-prefix=i686-w64-mingw32- --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32 -std=gnu89"
-          
-          # 2. 强制覆盖 Makefile 的系统识别，防止其执行 Linux 专属的动态库构建指令
-          echo "CONFIG_WIN32=yes" >> config.mak
-          
+          # Windows 原生环境下配置 32 位编译，并锁定 XP 兼容性
+          ./configure --cpu=x86 --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32"
           make
 
       - name: 打包编译产物
+        shell: msys2 {0}
         run: |
           mkdir -p dist/tcc
-          # MinGW 交叉编译会自动给生成的可执行文件加上 .exe 后缀
           cp tcc-0.9.23/tcc.exe dist/tcc/
           cp -r tcc-0.9.23/include dist/tcc/
           cp -r tcc-0.9.23/lib dist/tcc/
