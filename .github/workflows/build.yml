@@ -16,15 +16,13 @@ jobs:
           sudo apt-get install -y gcc-mingw-w64-i686 make zip git
 
       - name: 从 GitHub 下载 TinyCC 0.9.23 源码
-        # 使用 git clone 直接拉取 release_0_9_23 标签的代码
         run: |
           git clone --depth 1 --branch release_0_9_23 https://github.com/TinyCC/tinycc.git tcc-0.9.23
 
       - name: 编译 TinyCC (Windows XP - 11 32位)
         run: |
           cd tcc-0.9.23
-          # 2005年的老代码在较新版 GCC 下编译可能需要附加 -std=gnu89 放宽语法检查
-          ./configure --cross-prefix=i686-w64-mingw32- --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32 -std=gnu89"
+          ./configure --cpu=i386 --cross-prefix=i686-w64-mingw32- --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32 -std=gnu89"
           make
 
       - name: 打包编译产物
