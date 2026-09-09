@@ -3,8 +3,6 @@ name: Build mruby 1.4.0 for Windows
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   build-windows:
@@ -22,70 +20,44 @@ jobs:
           wget \
           mingw-w64 \
           zip \
-          unzip
+          unzip \
+          ruby        # 添加 Ruby
+          bison       # 可能需要
     
     - name: Download mruby 1.4.0
       run: |
         wget https://github.com/mruby/mruby/archive/refs/tags/1.4.0.tar.gz
         tar -xzf 1.4.0.tar.gz
         cd mruby-1.4.0
-        ls -la
     
-    - name: Configure for Windows cross-compile
+    - name: Create Windows cross-compile config
       run: |
         cd mruby-1.4.0
-        
-        # 创建 Windows 交叉编译配置
         cat > build_config.rb << 'EOF'
         MRuby::CrossBuild.new('windows-x64') do |conf|
           toolchain :gcc
           
-          # Windows x64 交叉编译
-          conf.cc do |cc|
-            cc.command = 'x86_64-w64-mingw32-gcc'
-            cc.flags = [ENV['CFLAGS'] || %w(-O2 -Wall)]
-            cc.include_paths = ["#{root}/include"]
-            cc.defines = %w(MRB_DISABLE_STDIO)
-          end
+          conf.cc.command = 'x86_64-w64-mingw32-gcc'
+          conf.linker.command = 'x86_64-w64-mingw32-gcc'
+          conf.archiver.command = 'x86_64-w64-mingw32-ar'
           
-          conf.linker do |linker|
-            linker.command = 'x86_64-w64-mingw32-gcc'
-            linker.flags = [ENV['LDFLAGS'] || %w()]
-            linker.libraries = %w(m)
-            linker.library_paths = []
-          end
-          
-          conf.archiver do |archiver|
-            archiver.command = 'x86_64-w64-mingw32-ar'
-            archiver.archive_options = 'rcs %{outfile} %{objs}'
-          end
-          
-          # Windows 特定配置
           conf.gembox 'default'
+          
           conf.gem :core => 'mruby-bin-mruby'
           conf.gem :core => 'mruby-bin-mirb'
-          
-          # 禁用不必要的功能
-          conf.disable_cxx_exception
-          conf.disable_presym
-          
-          # 生成 .exe
-          conf.bins = %w(mruby.exe mirb.exe)
+          conf.gem :core => 'mruby-bin-strip'
         end
         EOF
     
     - name: Build mruby for Windows
       run: |
         cd mruby-1.4.0
-        make clean
         make MRUBY_CONFIG=build_config.rb
     
     - name: Verify Windows binaries
       run: |
         cd mruby-1.4.0
-        find . -name "*.exe" -type f
-        file build/windows-x64/bin/*.exe 2>/dev/null || true
-        ls -la build/windows-x64/bin/ 2>/dev/null || true
+        find build -name "*.exe" -exec file {} \;
     
     - name: Package Windows binaries
       run: |
@@ -94,7 +66,6 @@ jobs:
         cp build/windows-x64/bin/*.exe ../mruby-windows/ 2>/dev/null || true
         cp -r build/windows-x64/lib ../mruby-windows/ 2>/dev/null || true
         cp -r include ../mruby-windows/ 2>/dev/null || true
-        
         cd ..
         zip -r mruby-1.4.0-windows-x64.zip mruby-windows/
         ls -la mruby-1.4.0-windows-x64.zip
