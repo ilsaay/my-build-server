@@ -1,26 +1,19 @@
-# .github/workflows/build-gcc-container.yml
-name: Build GCC 2.7.2.3 in Container
+name: Build GCC 2.7.2.3
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:18.04  # 或更老的版本
+    runs-on: ubuntu-20.04
     
     steps:
+    - uses: actions/checkout@v4
+    
     - name: Install dependencies
       run: |
-        apt-get update
-        apt-get install -y \
-          build-essential \
-          wget \
-          texinfo \
-          bison \
-          flex \
-          file
+        sudo apt-get update
+        sudo apt-get install -y build-essential wget texinfo bison flex
     
     - name: Download GCC
       run: |
@@ -30,7 +23,6 @@ jobs:
     - name: Configure
       run: |
         cd gcc-2.7.2.3
-        # 先尝试自动检测
         ./configure \
           --host=$(gcc -dumpmachine) \
           --build=$(gcc -dumpmachine) \
@@ -38,21 +30,12 @@ jobs:
           --disable-shared \
           --disable-threads \
           --disable-nls \
-          --prefix=$GITHUB_WORKSPACE/install || \
-        # 如果失败，使用 i686
-        ./configure \
-          --host=i686-pc-linux-gnu \
-          --build=i686-pc-linux-gnu \
-          --enable-languages=c \
-          --disable-shared \
-          --disable-threads \
-          --disable-nls \
           --prefix=$GITHUB_WORKSPACE/install
     
-    - name: Build
+    - name: Build (with warnings suppressed)
       run: |
         cd gcc-2.7.2.3
-        make -j2
+        make -j2 CFLAGS="-w -O0"  # -w 忽略警告
     
     - name: Install
       run: |
@@ -62,6 +45,10 @@ jobs:
     - name: Test
       run: |
         $GITHUB_WORKSPACE/install/bin/gcc --version
+        echo '#include <stdio.h>
+        int main() { printf("GCC 2.7.2.3 works!\n"); return 0; }' > test.c
+        $GITHUB_WORKSPACE/install/bin/gcc test.c -o test
+        ./test
     
     - name: Upload
       uses: actions/upload-artifact@v4
