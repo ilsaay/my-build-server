@@ -1,5 +1,5 @@
 # .github/workflows/build-tcc.yml
-name: Build TCC 0.9.23
+name: Build TCC 0.9.24
 
 on:
   workflow_dispatch:
@@ -16,40 +16,40 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential wget
     
-    - name: Download TCC 0.9.23
+    - name: Download TCC 0.9.24
       run: |
-        wget https://download.savannah.gnu.org/releases/tinycc/tcc-0.9.23.tar.gz
-        tar -xzf tcc-0.9.23.tar.gz
-        cd tcc-0.9.23
-        ls -la
+        # 尝试多个下载源
+        wget https://download.savannah.gnu.org/releases/tinycc/tcc-0.9.24.tar.gz || \
+        wget https://ftp.gnu.org/pub/gnu/savannah/tinycc/tcc-0.9.24.tar.gz || \
+        wget https://mirrors.tuna.tsinghua.edu.cn/gnu/tinycc/tcc-0.9.24.tar.gz
+        tar -xzf tcc-0.9.24.tar.gz
+        ls -la tcc-0.9.24/
     
-    - name: Configure TCC
+    - name: Configure
       run: |
-        cd tcc-0.9.23
-        ./configure \
-          --prefix=$GITHUB_WORKSPACE/tcc-install \
-          --disable-static
+        cd tcc-0.9.24
+        ./configure --prefix=$GITHUB_WORKSPACE/tcc-install
     
-    - name: Build TCC
+    - name: Build
       run: |
-        cd tcc-0.9.23
+        cd tcc-0.9.24
         make -j2
     
-    - name: Install TCC
+    - name: Install
       run: |
-        cd tcc-0.9.23
+        cd tcc-0.9.24
         make install
     
-    - name: Test TCC
+    - name: Test
       run: |
         $GITHUB_WORKSPACE/tcc-install/bin/tcc --version
         echo '#include <stdio.h>
-        int main() { printf("TCC 0.9.23 works!\n"); return 0; }' > test.c
+        int main() { printf("TCC works!\n"); return 0; }' > test.c
         $GITHUB_WORKSPACE/tcc-install/bin/tcc test.c -o test
         ./test
     
-    - name: Upload artifact
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: tcc-0923
+        name: tcc-0924
         path: $GITHUB_WORKSPACE/tcc-install
