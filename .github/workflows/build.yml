@@ -28,20 +28,20 @@ jobs:
         shell: cmd
         run: |
           cd dmd
-          if exist freebsd rmdir /S /Q freebsd
-          if exist linux rmdir /S /Q linux
-          if exist osx rmdir /S /Q osx
-          if exist html rmdir /S /Q html
-          if exist man rmdir /S /Q man
-          if exist samples rmdir /S /Q samples
+          rmdir /S /Q freebsd 2>nul
+          rmdir /S /Q linux 2>nul
+          rmdir /S /Q osx 2>nul
+          rmdir /S /Q html 2>nul
+          rmdir /S /Q man 2>nul
+          rmdir /S /Q samples 2>nul
           dir
 
       - name: Remove unnecessary files
         shell: cmd
         run: |
           cd dmd
-          if exist windows\lib rmdir /S /Q windows\lib
-          if exist windows\src rmdir /S /Q windows\src
+          rmdir /S /Q windows\lib 2>nul
+          rmdir /S /Q windows\src 2>nul
           dir windows
 
       - name: Upload DMD Lite
