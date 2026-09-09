@@ -1,63 +1,70 @@
-# .github/workflows/build-gcc-msys2.yml
-name: Build GCC 2.7.2.3 with MSYS2
+# .github/workflows/build-gcc-container.yml
+name: Build GCC 2.7.2.3 in Container
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:18.04  # 或更老的版本
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup MSYS2
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        update: true
-        install: >-
-          base-devel
-          mingw-w64-x86_64-toolchain
-          wget
-          tar
-          make
-          gcc
-          
-    - name: Download GCC 2.7.2.3 source
-      shell: msys2 {0}
+    - name: Install dependencies
       run: |
-        cd $GITHUB_WORKSPACE
+        apt-get update
+        apt-get install -y \
+          build-essential \
+          wget \
+          texinfo \
+          bison \
+          flex \
+          file
+    
+    - name: Download GCC
+      run: |
         wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
         tar -xzf gcc-2.7.2.3.tar.gz
-        cd gcc-2.7.2.3
     
-    - name: Configure GCC
-      shell: msys2 {0}
+    - name: Configure
       run: |
-        cd $GITHUB_WORKSPACE/gcc-2.7.2.3
+        cd gcc-2.7.2.3
+        # 先尝试自动检测
         ./configure \
+          --host=$(gcc -dumpmachine) \
+          --build=$(gcc -dumpmachine) \
           --enable-languages=c \
           --disable-shared \
           --disable-threads \
-          --disable-nls
+          --disable-nls \
+          --prefix=$GITHUB_WORKSPACE/install || \
+        # 如果失败，使用 i686
+        ./configure \
+          --host=i686-pc-linux-gnu \
+          --build=i686-pc-linux-gnu \
+          --enable-languages=c \
+          --disable-shared \
+          --disable-threads \
+          --disable-nls \
+          --prefix=$GITHUB_WORKSPACE/install
     
-    - name: Build GCC
-      shell: msys2 {0}
+    - name: Build
       run: |
-        cd $GITHUB_WORKSPACE/gcc-2.7.2.3
+        cd gcc-2.7.2.3
         make -j2
     
-    - name: Install GCC
-      shell: msys2 {0}
+    - name: Install
       run: |
-        cd $GITHUB_WORKSPACE/gcc-2.7.2.3
-        make install DESTDIR=$GITHUB_WORKSPACE/install
+        cd gcc-2.7.2.3
+        make install
     
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4  # 升级到 v4
+    - name: Test
+      run: |
+        $GITHUB_WORKSPACE/install/bin/gcc --version
+    
+    - name: Upload
+      uses: actions/upload-artifact@v4
       with:
-        name: gcc-2723-windows
-        path: install/
-        compression-level: 6
+        name: gcc-2723
+        path: $GITHUB_WORKSPACE/install
