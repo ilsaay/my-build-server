@@ -1,51 +1,67 @@
-name: Build DMD 1.076 Windows Lite
+# .github/workflows/build-gcc2723.yml
+name: Build GCC 2.7.2.3
 
 on:
   workflow_dispatch:
+    inputs:
+      target_os:
+        description: 'Target OS'
+        required: true
+        default: 'linux'
+        type: choice
+        options:
+          - linux
+          - windows-msys2
+          - windows-cygwin
 
 jobs:
-  build:
-    runs-on: windows-latest
-
+  build-linux:
+    if: github.event.inputs.target_os == 'linux'
+    runs-on: ubuntu-20.04
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download DMD 1.076 Windows
-        shell: cmd
+      - name: Install deps
         run: |
-          curl -L -o dmd.zip "https://downloads.dlang.org/releases/1.x/1.076/dmd.1.076.windows.zip"
-          dir
-
-      - name: Extract
-        shell: cmd
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget texinfo
+      
+      - name: Download GCC
         run: |
-          mkdir dmd
-          tar -xf dmd.zip -C dmd
-          dir dmd
-
-      - name: Remove non-Windows directories
-        shell: cmd
+          wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
+          tar -xzf gcc-2.7.2.3.tar.gz
+      
+      - name: Configure and Build
         run: |
-          cd dmd
-          rmdir /S /Q freebsd 2>nul
-          rmdir /S /Q linux 2>nul
-          rmdir /S /Q osx 2>nul
-          rmdir /S /Q html 2>nul
-          rmdir /S /Q man 2>nul
-          rmdir /S /Q samples 2>nul
-          dir
-
-      - name: Remove unnecessary files
-        shell: cmd
-        run: |
-          cd dmd
-          rmdir /S /Q windows\lib 2>nul
-          rmdir /S /Q windows\src 2>nul
-          dir windows
-
-      - name: Upload DMD Lite
-        uses: actions/upload-artifact@v4
+          cd gcc-2.7.2.3
+          ./configure --enable-languages=c --prefix=$PWD/install
+          make -j2
+          make install
+      
+      - name: Upload
+        uses: actions/upload-artifact@v3
         with:
-          name: dmd-1.076-windows-lite
-          path: dmd
+          name: gcc-2723-linux
+          path: gcc-2.7.2.3/install
+
+  build-windows:
+    if: github.event.inputs.target_os == 'windows-msys2'
+    runs-on: windows-latest
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          install: base-devel wget tar
+      
+      - name: Build in MSYS2
+        shell: msys2 {0}
+        run: |
+          wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
+          tar -xzf gcc-2.7.2.3.tar.gz
+          cd gcc-2.7.2.3
+          ./configure --enable-languages=c --prefix=$PWD/install
+          make -j2
+          make install
+      
+      - name: Upload
+        uses: actions/upload-artifact@v3
+        with:
+          name: gcc-2723-windows
+          path: gcc-2.7.2.3/install
