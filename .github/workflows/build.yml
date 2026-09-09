@@ -1,4 +1,4 @@
-name: Build SciTE Portable
+name: Build DMD 1.076 Windows
 
 on:
   workflow_dispatch:
@@ -6,31 +6,34 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download SciTE stable source
+      - name: Download DMD 1.076 Windows
         shell: cmd
         run: |
-          curl -L -o scite.zip https://www.scintilla.org/scite553.zip
-          tar -xf scite.zip
+          curl -L -o dmd1076.zip "https://downloads.dlang.org/releases/1.x/1.076/dmd.1.076.windows.zip"
+          dir
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Build SciTE.exe
+      - name: Extract
         shell: cmd
         run: |
-          cd scite\win32
-          nmake -f scite.mak ..\bin\SciTE.exe
+          mkdir dmd1076
+          tar -xf dmd1076.zip -C dmd1076
+          dir dmd1076
 
-      - name: Upload portable exe
+      - name: Remove useless directories
+        shell: cmd
+        run: |
+          cd dmd1076
+          rmdir /S /Q freebsd 2>nul
+          rmdir /S /Q linux 2>nul
+          rmdir /S /Q osx 2>nul
+          rmdir /S /Q html 2>nul
+          rmdir /S /Q man 2>nul
+          rmdir /S /Q samples 2>nul
+          dir
+
+      - name: Upload portable DMD
         uses: actions/upload-artifact@v4
         with:
-          name: SciTE-portable
-          path: |
-            scite\bin\SciTE.exe
-            scite\bin\*.dll
-            scite\bin\*.properties
+          name: dmd-1.076-windows-portable
+          path: dmd1076
