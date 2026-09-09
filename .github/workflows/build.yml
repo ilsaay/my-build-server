@@ -1,77 +1,61 @@
-# .github/workflows/build-mruby.yml
-name: Build mruby 1.4.0 for Windows
+name: Build mruby Windows
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:20.04
-      
+  build:
+    runs-on: ubuntu-20.04  # 直接使用，不用容器
+    
     steps:
     - name: Install dependencies
       run: |
-        apt-get update
-        apt-get install -y \
+        sudo apt-get update
+        sudo apt-get install -y \
           build-essential \
+          ruby-full \
+          bison \
           git \
           wget \
           mingw-w64 \
-          zip \
-          unzip \
-          ruby        # 添加 Ruby
-          bison       # 可能需要
+          zip
     
-    - name: Download mruby 1.4.0
+    - name: Download mruby
       run: |
         wget https://github.com/mruby/mruby/archive/refs/tags/1.4.0.tar.gz
         tar -xzf 1.4.0.tar.gz
-        cd mruby-1.4.0
+        mv mruby-1.4.0 mruby
     
-    - name: Create Windows cross-compile config
+    - name: Create config
       run: |
-        cd mruby-1.4.0
-        cat > build_config.rb << 'EOF'
-        MRuby::CrossBuild.new('windows-x64') do |conf|
+        cd mruby
+        cat > cross_config.rb << 'EOF'
+        MRuby::CrossBuild.new('windows') do |conf|
           toolchain :gcc
-          
           conf.cc.command = 'x86_64-w64-mingw32-gcc'
           conf.linker.command = 'x86_64-w64-mingw32-gcc'
           conf.archiver.command = 'x86_64-w64-mingw32-ar'
-          
           conf.gembox 'default'
-          
           conf.gem :core => 'mruby-bin-mruby'
           conf.gem :core => 'mruby-bin-mirb'
-          conf.gem :core => 'mruby-bin-strip'
         end
         EOF
     
-    - name: Build mruby for Windows
+    - name: Build
       run: |
-        cd mruby-1.4.0
-        make MRUBY_CONFIG=build_config.rb
+        cd mruby
+        make MRUBY_CONFIG=cross_config.rb
     
-    - name: Verify Windows binaries
+    - name: Package
       run: |
-        cd mruby-1.4.0
-        find build -name "*.exe" -exec file {} \;
-    
-    - name: Package Windows binaries
-      run: |
-        cd mruby-1.4.0
-        mkdir -p ../mruby-windows
-        cp build/windows-x64/bin/*.exe ../mruby-windows/ 2>/dev/null || true
-        cp -r build/windows-x64/lib ../mruby-windows/ 2>/dev/null || true
-        cp -r include ../mruby-windows/ 2>/dev/null || true
+        cd mruby
+        mkdir -p ../mruby-win
+        cp build/windows/bin/*.exe ../mruby-win/ 2>/dev/null || true
         cd ..
-        zip -r mruby-1.4.0-windows-x64.zip mruby-windows/
-        ls -la mruby-1.4.0-windows-x64.zip
+        zip -r mruby-win64.zip mruby-win/
     
-    - name: Upload Windows artifacts
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: mruby-1.4.0-windows
-        path: mruby-1.4.0-windows-x64.zip
+        name: mruby-windows
+        path: mruby-win64.zip
