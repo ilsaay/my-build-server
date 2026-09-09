@@ -1,24 +1,51 @@
-FROM ubuntu:16.04
+name: Build DMD 1.076 Windows Lite
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
-    p7zip-full \
-    && rm -rf /var/lib/apt/lists/*
+on:
+  workflow_dispatch:
 
-WORKDIR /build
+jobs:
+  build:
+    runs-on: windows-latest
 
-# 下载 DMD 1.076 Windows 包
-RUN curl -L -o dmd.zip "https://downloads.dlang.org/releases/1.x/1.076/dmd.1.076.windows.zip"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# 解压
-RUN mkdir dmd && unzip dmd.zip -d dmd
+      - name: Download DMD 1.076 Windows
+        shell: cmd
+        run: |
+          curl -L -o dmd.zip "https://downloads.dlang.org/releases/1.x/1.076/dmd.1.076.windows.zip"
+          dir
 
-# 删除非 Windows 目录
-RUN rm -rf dmd/freebsd dmd/linux dmd/osx dmd/html dmd/man dmd/samples
+      - name: Extract
+        shell: cmd
+        run: |
+          mkdir dmd
+          tar -xf dmd.zip -C dmd
+          dir dmd
 
-# 删除 Windows 下多余文件，只保留 bin 和必要文件
-RUN rm -rf dmd/windows/lib dmd/windows/src
+      - name: Remove non-Windows directories
+        shell: cmd
+        run: |
+          cd dmd
+          if exist freebsd rmdir /S /Q freebsd
+          if exist linux rmdir /S /Q linux
+          if exist osx rmdir /S /Q osx
+          if exist html rmdir /S /Q html
+          if exist man rmdir /S /Q man
+          if exist samples rmdir /S /Q samples
+          dir
 
-# 查看最终结构
-RUN find dmd -maxdepth 3 -type d
+      - name: Remove unnecessary files
+        shell: cmd
+        run: |
+          cd dmd
+          if exist windows\lib rmdir /S /Q windows\lib
+          if exist windows\src rmdir /S /Q windows\src
+          dir windows
+
+      - name: Upload DMD Lite
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmd-1.076-windows-lite
+          path: dmd
