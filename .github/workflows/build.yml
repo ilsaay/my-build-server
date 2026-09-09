@@ -1,69 +1,41 @@
-name: Build TCC Windows with Patches
+name: Build TinyCC 0.9.23 (32-bit XP-11)
 
 on:
+  push:
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: windows-latest
-    
+  build-win32:
+    runs-on: ubuntu-latest
+
     steps:
-    - name: Setup MSYS2
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        install: >-
-          base-devel
-          git
-          mingw-w64-x86_64-gcc
-    
-    - name: Clone TCC
-      shell: msys2 {0}
-      run: |
-        git clone https://github.com/TinyCC/tinycc.git
-        cd tinycc
-        git checkout release_0_9_26
-    
-    - name: Apply compatibility patches
-      shell: msys2 {0}
-      run: |
-        cd tinycc
-        
-        # 修复 spawnvp 参数类型
-        sed -i 's/(char const\*const\*)argv/(char *const*)argv/' tcc.c
-        
-        # 如果有其他指针类型问题
-        sed -i 's/const char \*const\*/char *const*/g' tcc.c libtcc.c
-        
-        # 显示修改
-        git diff
-    
-    - name: Configure
-      shell: msys2 {0}
-      run: |
-        cd tinycc
-        ./configure --prefix=$GITHUB_WORKSPACE/install
-    
-    - name: Build
-      shell: msys2 {0}
-      run: |
-        cd tinycc
-        make -j2 CFLAGS="-O2 -w"
-    
-    - name: Install
-      shell: msys2 {0}
-      run: |
-        cd tinycc
-        make install
-    
-    - name: Check output
-      shell: msys2 {0}
-      run: |
-        ls -la $GITHUB_WORKSPACE/install/
-        find $GITHUB_WORKSPACE/install -name "*.exe"
-    
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: tcc-windows
-        path: $GITHUB_WORKSPACE/install
+      - name: 安装 MinGW32 交叉编译工具链
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-i686 make wget zip
+
+      - name: 下载 TinyCC 0.9.23 源码
+        run: |
+          wget https://download.savannah.gnu.org/releases/tinycc/tcc-0.9.23.tar.bz2
+          tar -xjf tcc-0.9.23.tar.bz2
+
+      - name: 编译 TinyCC (Windows XP - 11 32位)
+        run: |
+          cd tcc-0.9.23
+          ./configure --cross-prefix=i686-w64-mingw32- --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32"
+          make
+
+      - name: 打包编译产物
+        run: |
+          mkdir -p dist/tcc
+          cp tcc-0.9.23/tcc.exe dist/tcc/
+          cp -r tcc-0.9.23/include dist/tcc/
+          cp -r tcc-0.9.23/lib dist/tcc/
+          cd dist && zip -r ../tcc-0.9.23-win32.zip tcc
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcc-0.9.23-win32-xp-11
+          path: tcc-0.9.23-win32.zip
