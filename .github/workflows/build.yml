@@ -1,49 +1,64 @@
-name: Build TCC in Container
+name: Build TCC Windows EXE
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:20.04  # 使用容器指定版本
+  build-windows:
+    runs-on: windows-latest
     
     steps:
-    - name: Install dependencies
-      run: |
-        apt-get update
-        apt-get install -y build-essential git wget
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          base-devel
+          git
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-make
     
     - name: Clone TCC
+      shell: msys2 {0}
       run: |
         git clone https://github.com/TinyCC/tinycc.git
         cd tinycc
         git checkout release_0_9_26
+        echo "Building TCC 0.9.26 for Windows"
     
-    - name: Configure
+    - name: Configure for Windows
+      shell: msys2 {0}
       run: |
         cd tinycc
-        ./configure --prefix=$GITHUB_WORKSPACE/install
+        ./configure \
+          --prefix=$GITHUB_WORKSPACE/install \
+          --enable-cross
     
-    - name: Build
+    - name: Build Windows TCC
+      shell: msys2 {0}
       run: |
         cd tinycc
         make -j2
     
     - name: Install
+      shell: msys2 {0}
       run: |
         cd tinycc
         make install
     
-    - name: Test
+    - name: Verify EXE
+      shell: msys2 {0}
       run: |
-        echo 'int main(void) { return 0; }' > test.c
-        $GITHUB_WORKSPACE/install/bin/tcc test.c -o test
-        ./test && echo "Success!" || echo "Build OK, execution may fail"
+        find $GITHUB_WORKSPACE/install -name "*.exe"
+        file $GITHUB_WORKSPACE/install/bin/tcc.exe
     
-    - name: Upload
+    - name: Upload Windows EXE
       uses: actions/upload-artifact@v4
       with:
-        name: tcc-0926
-        path: $GITHUB_WORKSPACE/install
+        name: tcc-windows-exe
+        path: |
+          ${{ github.workspace }}/install/**/*.exe
+          ${{ github.workspace }}/install/**/*.dll
+          ${{ github.workspace }}/install/**/*.a
+          ${{ github.workspace }}/install/**/include/**
