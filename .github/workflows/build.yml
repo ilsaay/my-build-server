@@ -7,16 +7,15 @@ on:
 
 jobs:
   build-win32:
-    # 切换至 Windows 运行者，使编译出来的 tcc.exe 可以直接在构建中运行
     runs-on: windows-latest
 
     steps:
-      - name: 设置 MSYS2 32位编译环境
+      - name: 设置 MSYS2 MINGW32 编译环境
         uses: msys2/setup-msys2@v2
         with:
-          msys2-location: C:\msys64
+          # 关键点：指定 MINGW32 子系统，加载 32 位 gcc 工具链
+          msystem: MINGW32
           update: true
-          # 安装 32 位 MinGW 工具链、make 和 git
           install: git make mingw-w64-i686-toolchain
 
       - name: 从 GitHub 下载 TinyCC 0.9.23 源码
@@ -28,8 +27,9 @@ jobs:
         shell: msys2 {0}
         run: |
           cd tcc-0.9.23
-          # Windows 原生环境下配置 32 位编译，并锁定 XP 兼容性
           ./configure --cpu=x86 --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32"
+          # 强制确认 Win32 目标生成
+          echo "CONFIG_WIN32=yes" >> config.mak
           make
 
       - name: 打包编译产物
