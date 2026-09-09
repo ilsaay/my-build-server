@@ -1,4 +1,4 @@
-name: Build DMD 1.076 Windows
+name: Build DMD 1.076 Windows Lite
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - name: Download DMD 1.076 Windows
         shell: cmd
@@ -20,20 +21,28 @@ jobs:
           tar -xf dmd1076.zip -C dmd1076
           dir dmd1076
 
-      - name: Remove useless directories
+      - name: Remove non-Windows directories
         shell: cmd
         run: |
           cd dmd1076
-          rmdir /S /Q freebsd 2>nul
-          rmdir /S /Q linux 2>nul
-          rmdir /S /Q osx 2>nul
-          rmdir /S /Q html 2>nul
-          rmdir /S /Q man 2>nul
-          rmdir /S /Q samples 2>nul
+          if exist freebsd rmdir /S /Q freebsd
+          if exist linux rmdir /S /Q linux
+          if exist osx rmdir /S /Q osx
+          if exist html rmdir /S /Q html
+          if exist man rmdir /S /Q man
+          if exist samples rmdir /S /Q samples
           dir
 
-      - name: Upload portable DMD
+      - name: Remove unnecessary files in Windows dir
+        shell: cmd
+        run: |
+          cd dmd1076\windows
+          if exist lib rmdir /S /Q lib
+          if exist src rmdir /S /Q src
+          dir
+
+      - name: Upload DMD 1.076 Windows Lite
         uses: actions/upload-artifact@v4
         with:
-          name: dmd-1.076-windows-portable
+          name: dmd-1.076-windows-lite
           path: dmd1076
