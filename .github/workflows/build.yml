@@ -1,11 +1,12 @@
-name: Build GCC 2.7.2.3
+# .github/workflows/build-tcc.yml
+name: Build TCC 0.9.23
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     
     steps:
     - uses: actions/checkout@v4
@@ -13,45 +14,42 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential wget texinfo bison flex
+        sudo apt-get install -y build-essential wget
     
-    - name: Download GCC
+    - name: Download TCC 0.9.23
       run: |
-        wget https://ftp.gnu.org/gnu/gcc/gcc-2.7.2.3.tar.gz
-        tar -xzf gcc-2.7.2.3.tar.gz
+        wget https://download.savannah.gnu.org/releases/tinycc/tcc-0.9.23.tar.gz
+        tar -xzf tcc-0.9.23.tar.gz
+        cd tcc-0.9.23
+        ls -la
     
-    - name: Configure
+    - name: Configure TCC
       run: |
-        cd gcc-2.7.2.3
+        cd tcc-0.9.23
         ./configure \
-          --host=$(gcc -dumpmachine) \
-          --build=$(gcc -dumpmachine) \
-          --enable-languages=c \
-          --disable-shared \
-          --disable-threads \
-          --disable-nls \
-          --prefix=$GITHUB_WORKSPACE/install
+          --prefix=$GITHUB_WORKSPACE/tcc-install \
+          --disable-static
     
-    - name: Build (with warnings suppressed)
+    - name: Build TCC
       run: |
-        cd gcc-2.7.2.3
-        make -j2 CFLAGS="-w -O0"  # -w 忽略警告
+        cd tcc-0.9.23
+        make -j2
     
-    - name: Install
+    - name: Install TCC
       run: |
-        cd gcc-2.7.2.3
+        cd tcc-0.9.23
         make install
     
-    - name: Test
+    - name: Test TCC
       run: |
-        $GITHUB_WORKSPACE/install/bin/gcc --version
+        $GITHUB_WORKSPACE/tcc-install/bin/tcc --version
         echo '#include <stdio.h>
-        int main() { printf("GCC 2.7.2.3 works!\n"); return 0; }' > test.c
-        $GITHUB_WORKSPACE/install/bin/gcc test.c -o test
+        int main() { printf("TCC 0.9.23 works!\n"); return 0; }' > test.c
+        $GITHUB_WORKSPACE/tcc-install/bin/tcc test.c -o test
         ./test
     
-    - name: Upload
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: gcc-2723
-        path: $GITHUB_WORKSPACE/install
+        name: tcc-0923
+        path: $GITHUB_WORKSPACE/tcc-install
