@@ -22,12 +22,19 @@ jobs:
       - name: 编译 TinyCC (Windows XP - 11 32位)
         run: |
           cd tcc-0.9.23
-          ./configure --cpu=i386 --cross-prefix=i686-w64-mingw32- --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32 -std=gnu89"
+          
+          # 1. 将 --cpu=i386 修改为 --cpu=x86
+          ./configure --cpu=x86 --cross-prefix=i686-w64-mingw32- --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32 -std=gnu89"
+          
+          # 2. 强制覆盖 Makefile 的系统识别，防止其执行 Linux 专属的动态库构建指令
+          echo "CONFIG_WIN32=yes" >> config.mak
+          
           make
 
       - name: 打包编译产物
         run: |
           mkdir -p dist/tcc
+          # MinGW 交叉编译会自动给生成的可执行文件加上 .exe 后缀
           cp tcc-0.9.23/tcc.exe dist/tcc/
           cp -r tcc-0.9.23/include dist/tcc/
           cp -r tcc-0.9.23/lib dist/tcc/
