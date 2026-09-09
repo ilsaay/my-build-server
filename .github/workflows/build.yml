@@ -1,4 +1,4 @@
-name: Build TinyCC 0.9.23 (Windows Native 32-bit)
+name: Build TinyCC 0.9.23 (Windows Native 64-bit)
 
 on:
   push:
@@ -6,29 +6,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-win32:
+  build-win64:
     runs-on: windows-latest
 
     steps:
-      - name: 设置 MSYS2 MINGW32 编译环境
+      - name: 设置 MSYS2 MINGW64 编译环境
         uses: msys2/setup-msys2@v2
         with:
-          # 关键点：指定 MINGW32 子系统，加载 32 位 gcc 工具链
-          msystem: MINGW32
+          # 切换至 64 位 MINGW64 子系统
+          msystem: MINGW64
           update: true
-          install: git make mingw-w64-i686-toolchain
+          install: git make mingw-w64-x86_64-toolchain
 
       - name: 从 GitHub 下载 TinyCC 0.9.23 源码
         shell: msys2 {0}
         run: |
           git clone --depth 1 --branch release_0_9_23 https://github.com/TinyCC/tinycc.git tcc-0.9.23
 
-      - name: 配置并编译 TinyCC (Windows XP - 11 32位)
+      - name: 配置并编译 TinyCC (64位 Windows)
         shell: msys2 {0}
         run: |
           cd tcc-0.9.23
-          ./configure --cpu=x86 --extra-cflags="-O2 -D_WIN32_WINNT=0x0501 -m32"
-          # 强制确认 Win32 目标生成
+          # 配置 64 位架构并锁定 Windows 7 及以上兼容目标
+          ./configure --cpu=x86_64 --extra-cflags="-O2 -D_WIN32_WINNT=0x0601"
           echo "CONFIG_WIN32=yes" >> config.mak
           make
 
@@ -39,10 +39,10 @@ jobs:
           cp tcc-0.9.23/tcc.exe dist/tcc/
           cp -r tcc-0.9.23/include dist/tcc/
           cp -r tcc-0.9.23/lib dist/tcc/
-          cd dist && zip -r ../tcc-0.9.23-win32.zip tcc
+          cd dist && zip -r ../tcc-0.9.23-win64.zip tcc
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: tcc-0.9.23-win32-xp-11
-          path: tcc-0.9.23-win32.zip
+          name: tcc-0.9.23-win64
+          path: tcc-0.9.23-win64.zip
