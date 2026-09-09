@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04  # 直接使用，不用容器
+    runs-on: ubuntu-latest  # 改为 latest，更快分配
     
     steps:
     - name: Install dependencies
