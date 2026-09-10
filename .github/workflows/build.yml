@@ -1,67 +1,53 @@
-name: Build Windows x64
+name: Build Rust Control
 
 on:
   push:
-    branches:
-      - main
-      - master
-
-  pull_request:
-
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  build-windows:
-    name: Build Windows x64 EXE
-    runs-on: ubuntu-latest
+  build:
+    runs-on: windows-2022
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install MinGW-w64
+      - name: Install Rust 1.60.1
+        shell: powershell
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64
+          rustup toolchain install 1.60.1 --profile minimal
+          rustup default 1.60.1
 
-      - name: Show compiler
+          Write-Host "========================================"
+          rustc --version
+          cargo --version
+          Write-Host "========================================"
+
+      - name: Build
+        shell: powershell
         run: |
-          x86_64-w64-mingw32-gcc --version
+          rustc --version
+          rustc main.rs -C opt-level=3 -C lto=yes -C codegen-units=1 -C panic=abort -o rust-control.exe
 
-      - name: Prepare output directory
+      - name: Check EXE
+        shell: powershell
         run: |
-          rm -rf bin
-          mkdir -p bin
+          if (!(Test-Path "rust-control.exe")) {
+            Write-Error "rust-control.exe was not generated."
+            exit 1
+          }
 
-      - name: Compile strict C89
-        run: |
-          x86_64-w64-mingw32-gcc \
-            -std=c89 \
-            -pedantic-errors \
-            -Wall \
-            -Wextra \
-            -Wconversion \
-            -Wshadow \
-            -Wstrict-prototypes \
-            -Wmissing-prototypes \
-            -O2 \
-            -mconsole \
-            -o bin/sysinfo.exe \
-            src/main.c
+          Write-Host ""
+          Write-Host "========================================"
+          Write-Host "BUILD SUCCESS"
+          Write-Host "========================================"
 
-      - name: Verify executable
-        run: |
-          file bin/sysinfo.exe
-          ls -lh bin/sysinfo.exe
-          x86_64-w64-mingw32-objdump -p bin/sysinfo.exe | grep "DLL Name"
+          Get-Item "rust-control.exe" |
+            Select-Object FullName, Length, LastWriteTime
 
-      - name: Upload Windows executable
+      - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
-          name: sysinfo-windows-x64
-          path: bin/sysinfo.exe
+          name: rust-control-windows-x64
+          path: rust-control.exe
           if-no-files-found: error
-          retention-days: 30
