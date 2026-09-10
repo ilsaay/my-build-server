@@ -7,9 +7,6 @@ on:
       - master
 
   pull_request:
-    branches:
-      - main
-      - master
 
   workflow_dispatch:
 
@@ -18,65 +15,46 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build Windows x64
-    runs-on: windows-latest
+    name: Build Windows x64 EXE
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup DMD
-        uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: dmd
+      - name: Install MinGW-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-x86-64
 
       - name: Show compiler
-        shell: pwsh
         run: |
-          dmd --version
+          x86_64-w64-mingw32-gcc --version
 
-      - name: Build
-        shell: pwsh
+      - name: Prepare output directory
         run: |
-          $ErrorActionPreference = "Stop"
+          mkdir -p bin
 
-          New-Item `
-            -ItemType Directory `
-            -Force `
-            -Path bin | Out-Null
-
-          dmd `
-            -m64 `
-            -O `
-            -release `
-            -inline `
-            -boundscheck=on `
-            -of=bin/sysinfo.exe `
-            src/main.d
-
-          if (-not (Test-Path "bin/sysinfo.exe")) {
-            Write-Host "Build failed."
-            exit 1
-          }
-
-          Write-Host "Build successful."
-
-          Get-Item "bin/sysinfo.exe" |
-            Format-List FullName,Length,LastWriteTime
-
-      - name: Verify PE
-        shell: pwsh
+      - name: Compile C89 Windows EXE
         run: |
-          $ErrorActionPreference = "Stop"
+          x86_64-w64-mingw32-gcc \
+            -std=c89 \
+            -pedantic \
+            -Wall \
+            -Wextra \
+            -O2 \
+            -s \
+            -mconsole \
+            -o bin/sysinfo.exe \
+            src/main.c \
+            -lpsapi
 
-          if (-not (Test-Path "bin/sysinfo.exe")) {
-            exit 1
-          }
+      - name: Verify executable
+        run: |
+          file bin/sysinfo.exe
+          ls -lh bin/sysinfo.exe
 
-          Write-Host "Windows executable exists:"
-          Get-Item "bin/sysinfo.exe"
-
-      - name: Upload Windows x64 EXE
+      - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: sysinfo-windows-x64
