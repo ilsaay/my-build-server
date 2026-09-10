@@ -9,48 +9,134 @@ jobs:
     runs-on: windows-2022
 
     steps:
+
+      # --------------------------------------------------
+      # Checkout
+      # --------------------------------------------------
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 使用 Rust 1.60.1 官方历史安装程序
+      # --------------------------------------------------
+      # Download Rust 1.60.1
+      # --------------------------------------------------
+
+      - name: Download Rust 1.60.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\rust" | Out-Null
+
+          $url = "https://static.rust-lang.org/dist/2022-04-07/rust-1.60.1-x86_64-pc-windows-msvc.tar.gz"
+
+          $file = "$env:RUNNER_TEMP\rust\rust.tar.gz"
+
+          Write-Host "Downloading:"
+          Write-Host $url
+
+          Invoke-WebRequest `
+            -Uri $url `
+            -OutFile $file
+
+          if (!(Test-Path $file)) {
+            throw "Rust archive was not downloaded."
+          }
+
+          Write-Host "Rust archive:"
+          Get-Item $file
+
+      # --------------------------------------------------
+      # Extract Rust
+      # --------------------------------------------------
+
+      - name: Extract Rust 1.60.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $archive = "$env:RUNNER_TEMP\rust\rust.tar.gz"
+          $directory = "$env:RUNNER_TEMP\rust"
+
+          tar -xzf $archive -C $directory
+
+          $rustDirectory = "$directory\rust-1.60.1-x86_64-pc-windows-msvc"
+
+          if (!(Test-Path $rustDirectory)) {
+            Write-Host "Directory listing:"
+            Get-ChildItem -Recurse $directory
+
+            throw "Rust 1.60.1 directory was not found."
+          }
+
+          Write-Host "Rust directory:"
+          Write-Host $rustDirectory
+
+          echo "RUST_DIR=$rustDirectory" >> $env:GITHUB_ENV
+
+      # --------------------------------------------------
+      # Install Rust
+      # --------------------------------------------------
+
       - name: Install Rust 1.60.1
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
-          $installer = "$env:TEMP\rustup-init.exe"
+          $installScript = "$env:RUST_DIR\install.bat"
 
-          Write-Host "Downloading rustup-init..."
-          Invoke-WebRequest `
-            -Uri "https://static.rust-lang.org/rustup/archive/1.24.3/x86_64-pc-windows-msvc/rustup-init.exe" `
-            -OutFile $installer
-
-          Write-Host "Installing Rust..."
-          & $installer `
-            -y `
-            --default-toolchain none `
-            --profile minimal
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "rustup-init failed"
+          if (!(Test-Path $installScript)) {
+            throw "install.bat was not found."
           }
 
-          $env:Path = "$env:USERPROFILE\.cargo;$env:USERPROFILE\.cargo\bin;$env:Path"
-
-          Write-Host "Installing Rust 1.60.1..."
-          rustup toolchain install 1.60.1-x86_64-pc-windows-msvc --profile minimal
+          cmd.exe /C "`"$installScript`" --prefix=`"$env:RUNNER_TEMP\rust-install`""
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Rust 1.60.1 installation failed"
+            throw "Rust installation failed."
           }
 
-          Write-Host ""
-          Write-Host "Installed toolchains:"
-          rustup toolchain list
+          Write-Host "Rust installed."
 
-          Write-Host ""
-          Write-Host "Rust version:"
-          rustup run 1.60.1-x86_64-pc-windows-msvc rustc --version
+          Get-ChildItem "$env:RUNNER_TEMP\rust-install" -Recurse -File |
+            Select-Object FullName
+
+      # --------------------------------------------------
+      # Locate rustc
+      # --------------------------------------------------
+
+      - name: Locate rustc
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $rustc = Get-ChildItem `
+            "$env:RUNNER_TEMP\rust-install" `
+            -Filter "rustc.exe" `
+            -Recurse `
+            -File |
+            Select-Object -First 1
+
+          if ($null -eq $rustc) {
+            throw "rustc.exe was not found."
+          }
+
+          Write-Host "rustc:"
+          Write-Host $rustc.FullName
+
+          echo "RUSTC_PATH=$($rustc.FullName)" >> $env:GITHUB_ENV
+
+      # --------------------------------------------------
+      # Check Rust version
+      # --------------------------------------------------
+
+      - name: Check Rust version
+        shell: powershell
+        run: |
+          & "$env:RUSTC_PATH" --version
+
+      # --------------------------------------------------
+      # Check source
+      # --------------------------------------------------
 
       - name: Check source
         shell: powershell
@@ -59,53 +145,65 @@ jobs:
           Get-Location
 
           Write-Host ""
-          Write-Host "Repository files:"
+          Write-Host "Repository:"
           Get-ChildItem -Recurse -File |
             Select-Object FullName
 
           if (!(Test-Path "src\main.rs")) {
-            Write-Error "src\main.rs was not found."
-            exit 1
+            throw "src\main.rs was not found."
           }
 
           Write-Host ""
-          Write-Host "Found: src\main.rs"
+          Write-Host "Found src\main.rs"
+
+      # --------------------------------------------------
+      # Build
+      # --------------------------------------------------
 
       - name: Build
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
 
-          rustup run 1.60.1-x86_64-pc-windows-msvc rustc `
-            src\main.rs `
+          & "$env:RUSTC_PATH" `
+            "src\main.rs" `
             -C opt-level=3 `
             -C codegen-units=1 `
             -C panic=abort `
-            -o rust-control.exe
+            -o "rust-control.exe"
 
           if ($LASTEXITCODE -ne 0) {
-            throw "Rust compilation failed"
+            throw "Rust compilation failed."
           }
 
-      - name: Check EXE
+      # --------------------------------------------------
+      # Verify
+      # --------------------------------------------------
+
+      - name: Verify
         shell: powershell
         run: |
           if (!(Test-Path "rust-control.exe")) {
-            Write-Error "rust-control.exe was not generated."
-            exit 1
+            throw "rust-control.exe was not generated."
           }
 
           Write-Host ""
-          Write-Host "========================================"
+          Write-Host "=========================================="
           Write-Host "BUILD SUCCESS"
-          Write-Host "========================================"
+          Write-Host "=========================================="
 
+          Write-Host ""
+          Write-Host "Rust:"
+          & "$env:RUSTC_PATH" --version
+
+          Write-Host ""
+          Write-Host "EXE:"
           Get-Item "rust-control.exe" |
             Select-Object FullName, Length, LastWriteTime
 
-          Write-Host ""
-          Write-Host "Compiler:"
-          rustup run 1.60.1-x86_64-pc-windows-msvc rustc --version
+      # --------------------------------------------------
+      # Upload
+      # --------------------------------------------------
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
