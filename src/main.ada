@@ -1,11 +1,12 @@
 -------------------------------------------------------------------------------
 --  Windows 平台单线程 TUI 系统信息查看器
---  单文件实现：TUI + 安全 + 功能
+--  单文件实现，无第三方库
 --  约束：单线程 / 内存安全 / 不写磁盘 / 全程内存运行
 -------------------------------------------------------------------------------
 with Ada.Text_IO;              use Ada.Text_IO;
 with Ada.Strings.Fixed;        use Ada.Strings.Fixed;
 with Ada.Environment_Variables;
+with Ada.Calendar;
 with Interfaces.C;             use Interfaces.C;
 with System;
 
@@ -19,9 +20,9 @@ procedure Main is
    ---------------------------------------------------------------------------
    -- Win32 API 绑定
    ---------------------------------------------------------------------------
-   subtype DWORD  is unsigned_long;
-   subtype WORD   is unsigned_short;
-   subtype BOOL   is int;
+   subtype DWORD  is unsigned;          -- 32 位无符号
+   subtype WORD   is unsigned_short;    -- 16 位
+   subtype BOOL   is int;               -- 32 位
    subtype HANDLE is System.Address;
 
    STD_OUTPUT_HANDLE : constant DWORD := DWORD (-11);
@@ -117,7 +118,7 @@ procedure Main is
    end Put_At;
 
    procedure Draw_Box (Top, Left, Height, Width : Positive; Title : String) is
-      H_Line : constant String (1 .. Width - 2) := (others => '-');
+      H_Line : constant String (1 .. Width - 2) := [others => '-'];
    begin
       Move_To (Top, Left);
       Put ("+" & H_Line & "+");
@@ -135,16 +136,18 @@ procedure Main is
    -- 信息采集
    ---------------------------------------------------------------------------
    type System_Info is record
-      Hostname       : String (1 .. 64)  := (others => ' ');
+      Hostname       : String (1 .. 64)  := [others => ' '];
       Hostname_Len   : Natural := 0;
-      OS_Version     : String (1 .. 128) := (others => ' ');
+      OS_Version     : String (1 .. 128) := [others => ' '];
       OS_Version_Len : Natural := 0;
-      Uptime         : String (1 .. 64)  := (others => ' ');
+      Uptime         : String (1 .. 64)  := [others => ' '];
       Uptime_Len     : Natural := 0;
-      Mem_Total      : String (1 .. 32)  := (others => ' ');
+      Mem_Total      : String (1 .. 32)  := [others => ' '];
       Mem_Total_Len  : Natural := 0;
-      Mem_Free       : String (1 .. 32)  := (others => ' ');
+      Mem_Free       : String (1 .. 32)  := [others => ' '];
       Mem_Free_Len   : Natural := 0;
+      Local_Time     : String (1 .. 32)  := [others => ' '];
+      Local_Time_Len : Natural := 0;
    end record;
 
    procedure Copy_To (Src : String; Dst : out String; Dst_Len : out Natural) is
@@ -162,17 +165,27 @@ procedure Main is
       return S (S'First + 1 .. S'Last);
    end Img;
 
+   function Pad2 (V : Natural) return String is
+      S : constant String := Natural'Image (V);
+   begin
+      if V < 10 then
+         return "0" & S (S'First + 1 .. S'Last);
+      else
+         return S (S'First + 1 .. S'Last);
+      end if;
+   end Pad2;
+
    procedure Gather (S : out System_Info) is
    begin
-      -- 主机名
+      -- 主机名：环境变量
       Copy_To (Ada.Environment_Variables.Value ("COMPUTERNAME", ""),
                S.Hostname, S.Hostname_Len);
 
-      -- OS
+      -- OS：环境变量
       Copy_To (Ada.Environment_Variables.Value ("OS", "Windows"),
                S.OS_Version, S.OS_Version_Len);
 
-      -- 运行时间
+      -- 运行时间：GetTickCount64
       declare
          Sec : constant unsigned_long_long := GetTickCount64 / 1000;
       begin
@@ -182,7 +195,7 @@ procedure Main is
                   S.Uptime, S.Uptime_Len);
       end;
 
-      -- 内存
+      -- 内存：GlobalMemoryStatusEx
       declare
          St : aliased MEMORYSTATUSEX :=
            (dwLength => DWORD (MEMORYSTATUSEX'Size / 8), others => <>);
@@ -193,6 +206,26 @@ procedure Main is
             Copy_To (Img (St.ullAvailPhys / (1024 * 1024)) & " MB",
                      S.Mem_Free, S.Mem_Free_Len);
          end if;
+      end;
+
+      -- 本地时间：Ada.Calendar
+      declare
+         Now : constant Ada.Calendar.Time := Ada.Calendar.Clock;
+         Y   : Ada.Calendar.Year_Number;
+         M   : Ada.Calendar.Month_Number;
+         D   : Ada.Calendar.Day_Number;
+         Sec : Ada.Calendar.Day_Duration;
+         H, Mi, Se : Natural;
+      begin
+         Ada.Calendar.Split (Now, Y, M, D, Sec);
+         H  := Natural (Sec / 3600);
+         Mi := Natural ((Sec mod 3600) / 60);
+         Se := Natural (Sec mod 60);
+         Copy_To (Img (unsigned_long_long (Y)) & "-" &
+                  Pad2 (Natural (M)) & "-" &
+                  Pad2 (Natural (D)) & " " &
+                  Pad2 (H) & ":" & Pad2 (Mi) & ":" & Pad2 (Se),
+                  S.Local_Time, S.Local_Time_Len);
       end;
    end Gather;
 
@@ -206,14 +239,15 @@ begin
    begin
       Gather (S);
 
-      Draw_Box (1, 1, 16, 78, "System Information (Windows)");
+      Draw_Box (1, 1, 18, 78, "System Information (Windows)");
       Put_At (3,  3, "Hostname : " & S.Hostname (1 .. S.Hostname_Len));
       Put_At (4,  3, "OS       : " & S.OS_Version (1 .. S.OS_Version_Len));
       Put_At (6,  3, "Uptime   : " & S.Uptime (1 .. S.Uptime_Len));
       Put_At (8,  3, "MemTotal : " & S.Mem_Total (1 .. S.Mem_Total_Len));
       Put_At (9,  3, "MemFree  : " & S.Mem_Free (1 .. S.Mem_Free_Len));
-      Put_At (14, 3, "Press Enter to exit...");
-      Move_To (14, 26);
+      Put_At (11, 3, "LocalTime: " & S.Local_Time (1 .. S.Local_Time_Len));
+      Put_At (16, 3, "Press Enter to exit...");
+      Move_To (16, 26);
 
       declare
          Dummy : String (1 .. 1);
