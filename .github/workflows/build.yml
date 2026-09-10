@@ -33,26 +33,30 @@ jobs:
 
       - name: Prepare output directory
         run: |
+          rm -rf bin
           mkdir -p bin
 
-      - name: Compile C89 Windows EXE
+      - name: Compile strict C89
         run: |
           x86_64-w64-mingw32-gcc \
             -std=c89 \
-            -pedantic \
+            -pedantic-errors \
             -Wall \
             -Wextra \
+            -Wconversion \
+            -Wshadow \
+            -Wstrict-prototypes \
+            -Wmissing-prototypes \
             -O2 \
-            -s \
             -mconsole \
             -o bin/sysinfo.exe \
-            src/main.c \
-            -lpsapi
+            src/main.c
 
       - name: Verify executable
         run: |
           file bin/sysinfo.exe
           ls -lh bin/sysinfo.exe
+          x86_64-w64-mingw32-objdump -p bin/sysinfo.exe | grep "DLL Name"
 
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
@@ -60,3 +64,4 @@ jobs:
           name: sysinfo-windows-x64
           path: bin/sysinfo.exe
           if-no-files-found: error
+          retention-days: 30
