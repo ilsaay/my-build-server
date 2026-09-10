@@ -15,6 +15,15 @@ import std.string;
 import std.conv : to;
 import std.datetime;
 import std.format;
+import std.array : replicate;
+
+// ── 显式声明缺失的 Win32 函数 ───────────────────────────────
+extern(Windows) nothrow @nogc:
+    ULONGLONG GetTickCount64();
+
+extern(C) nothrow @nogc:
+    int _kbhit();
+    int _getch();
 
 // ── 全局开关 ────────────────────────────────────────────────
 __gshared bool g_running = true;
@@ -84,7 +93,7 @@ SysInfo gather()
 
     // 主机名
     char[256] buf;
-    DWORD size = buf.length;
+    DWORD size = cast(DWORD)buf.length;
     if (GetComputerNameA(buf.ptr, &size))
         s.hostname = buf[0 .. size].idup;
     else
@@ -100,7 +109,7 @@ SysInfo gather()
 
     // 内存
     MEMORYSTATUSEX mem;
-    mem.dwLength = MEMORYSTATUSEX.sizeof;
+    mem.dwLength = cast(DWORD)MEMORYSTATUSEX.sizeof;
     if (GlobalMemoryStatusEx(&mem))
     {
         s.memTotal = format("%d MB", mem.ullTotalPhys / (1024 * 1024));
@@ -117,7 +126,7 @@ SysInfo gather()
     s.localTime = format("%04d-%02d-%02d %02d:%02d:%02d",
         now.year, now.month, now.day, now.hour, now.minute, now.second);
 
-    // CPU 负载：简单占位，可用性能计数器扩展
+    // CPU 负载：简单占位
     s.cpuLoad = "N/A";
 
     return s;
@@ -166,9 +175,9 @@ void main()
         }
 
         // 非阻塞检查按键
-        if (kbhit())
+        if (_kbhit())
         {
-            int ch = getch();
+            int ch = _getch();
             switch (ch)
             {
                 case 'q', 'Q':
