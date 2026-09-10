@@ -12,11 +12,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 使用 Rust 1.60.1 官方历史安装程序
       - name: Install Rust 1.60.1
         shell: powershell
         run: |
-          rustup toolchain install 1.60.1 --profile minimal
-          rustup run 1.60.1 rustc --version
+          $ErrorActionPreference = "Stop"
+
+          $installer = "$env:TEMP\rustup-init.exe"
+
+          Write-Host "Downloading rustup-init..."
+          Invoke-WebRequest `
+            -Uri "https://static.rust-lang.org/rustup/archive/1.24.3/x86_64-pc-windows-msvc/rustup-init.exe" `
+            -OutFile $installer
+
+          Write-Host "Installing Rust..."
+          & $installer `
+            -y `
+            --default-toolchain none `
+            --profile minimal
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "rustup-init failed"
+          }
+
+          $env:Path = "$env:USERPROFILE\.cargo;$env:USERPROFILE\.cargo\bin;$env:Path"
+
+          Write-Host "Installing Rust 1.60.1..."
+          rustup toolchain install 1.60.1-x86_64-pc-windows-msvc --profile minimal
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Rust 1.60.1 installation failed"
+          }
+
+          Write-Host ""
+          Write-Host "Installed toolchains:"
+          rustup toolchain list
+
+          Write-Host ""
+          Write-Host "Rust version:"
+          rustup run 1.60.1-x86_64-pc-windows-msvc rustc --version
 
       - name: Check source
         shell: powershell
@@ -25,22 +59,33 @@ jobs:
           Get-Location
 
           Write-Host ""
-          Write-Host "Files:"
-          Get-ChildItem -Recurse -File | Select-Object FullName
+          Write-Host "Repository files:"
+          Get-ChildItem -Recurse -File |
+            Select-Object FullName
 
           if (!(Test-Path "src\main.rs")) {
-            Write-Error "src\main.rs not found!"
+            Write-Error "src\main.rs was not found."
             exit 1
           }
+
+          Write-Host ""
+          Write-Host "Found: src\main.rs"
 
       - name: Build
         shell: powershell
         run: |
-          rustup run 1.60.1 rustc src\main.rs `
+          $ErrorActionPreference = "Stop"
+
+          rustup run 1.60.1-x86_64-pc-windows-msvc rustc `
+            src\main.rs `
             -C opt-level=3 `
             -C codegen-units=1 `
             -C panic=abort `
             -o rust-control.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Rust compilation failed"
+          }
 
       - name: Check EXE
         shell: powershell
@@ -57,6 +102,10 @@ jobs:
 
           Get-Item "rust-control.exe" |
             Select-Object FullName, Length, LastWriteTime
+
+          Write-Host ""
+          Write-Host "Compiler:"
+          rustup run 1.60.1-x86_64-pc-windows-msvc rustc --version
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
