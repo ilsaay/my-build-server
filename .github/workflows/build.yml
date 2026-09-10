@@ -9,7 +9,6 @@ on:
 
 jobs:
   build:
-    name: Build on Windows
     runs-on: windows-latest
 
     steps:
@@ -21,26 +20,27 @@ jobs:
         with:
           msystem: UCRT64
           update: true
+          # 关键修复：使用 MSYS2 官方源中正确的包名
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gnat
+            mingw-w64-ucrt-x86_64-gcc-ada
             mingw-w64-ucrt-x86_64-gprbuild
-            make
 
-      - name: Show GNAT version
+      - name: Show Ada version
         shell: msys2 {0}
         run: |
           gnat --version
           gprbuild --version
 
-      - name: Build with gprbuild
+      - name: Build
         shell: msys2 {0}
         run: |
-          gprbuild -P sysinfo.gpr -j0
+          mkdir -p bin
+          gnatmake -P src/main.adb -D bin
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: sysinfo-windows
-          path: bin/*.exe
+          # 产物是 main.exe
+          path: bin/main.exe
           if-no-files-found: error
