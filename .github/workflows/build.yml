@@ -25,9 +25,18 @@ jobs:
         run: dmd --version
 
       - name: Build
+        shell: pwsh
         run: |
-          mkdir bin
-          dmd -O -release -of=bin\sysinfo.exe src\main.d
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          dmd -O -release -of=bin/sysinfo.exe src/main.d
+          if (-not (Test-Path "bin/sysinfo.exe")) {
+            Write-Host "=== Build failed: bin/sysinfo.exe not found ==="
+            Get-ChildItem -Recurse | Format-Table FullName
+            exit 1
+          }
+          Write-Host "=== Build succeeded ==="
+          Get-Item bin/sysinfo.exe | Format-List
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
