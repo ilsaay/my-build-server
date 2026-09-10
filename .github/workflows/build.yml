@@ -1,46 +1,84 @@
-name: Build Windows
+name: Build Windows x64
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+
   pull_request:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
-    name: Build on Windows
+  build-windows:
+    name: Build Windows x64
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup D (DMD)
+      - name: Setup DMD
         uses: dlang-community/setup-dlang@v2
         with:
           compiler: dmd
 
-      - name: Show D version
-        run: dmd --version
+      - name: Show compiler
+        shell: pwsh
+        run: |
+          dmd --version
 
       - name: Build
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Force -Path bin | Out-Null
-          dmd -O -release -of=bin/sysinfo.exe src/main.d
+          $ErrorActionPreference = "Stop"
+
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path bin | Out-Null
+
+          dmd `
+            -m64 `
+            -O `
+            -release `
+            -inline `
+            -boundscheck=on `
+            -of=bin/sysinfo.exe `
+            src/main.d
+
           if (-not (Test-Path "bin/sysinfo.exe")) {
-            Write-Host "=== Build failed: bin/sysinfo.exe not found ==="
-            Get-ChildItem -Recurse | Format-Table FullName
+            Write-Host "Build failed."
             exit 1
           }
-          Write-Host "=== Build succeeded ==="
-          Get-Item bin/sysinfo.exe | Format-List
 
-      - name: Upload artifact
+          Write-Host "Build successful."
+
+          Get-Item "bin/sysinfo.exe" |
+            Format-List FullName,Length,LastWriteTime
+
+      - name: Verify PE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (-not (Test-Path "bin/sysinfo.exe")) {
+            exit 1
+          }
+
+          Write-Host "Windows executable exists:"
+          Get-Item "bin/sysinfo.exe"
+
+      - name: Upload Windows x64 EXE
         uses: actions/upload-artifact@v4
         with:
-          name: sysinfo-windows
+          name: sysinfo-windows-x64
           path: bin/sysinfo.exe
           if-no-files-found: error
