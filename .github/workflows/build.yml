@@ -1,96 +1,46 @@
-name: Build mruby Windows
+name: Build Windows
 
 on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    
+    name: Build on Windows
+    runs-on: windows-latest
+
     steps:
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          ruby-full \
-          bison \
-          git \
-          wget \
-          mingw-w64 \
-          zip
-    
-    - name: Download mruby
-      run: |
-        wget https://github.com/mruby/mruby/archive/refs/tags/1.4.0.tar.gz
-        tar -xzf 1.4.0.tar.gz
-        mv mruby-1.4.0 mruby
-        cd mruby
-        ls -la
-    
-    - name: Create proper build config
-      run: |
-        cd mruby
-        # 先测试默认编译
-        cat > build_config.rb << 'EOF'
-        MRuby::Build.new do |conf|
-          toolchain :gcc
-          conf.gembox 'default'
-          conf.gem :core => 'mruby-bin-mruby'
-          conf.gem :core => 'mruby-bin-mirb'
-        end
-        EOF
-    
-    - name: Build mruby (native first)
-      run: |
-        cd mruby
-        make
-    
-    - name: Create cross-compile config for Windows
-      run: |
-        cd mruby
-        cat > cross_config.rb << 'EOF'
-        MRuby::CrossBuild.new('windows-x64') do |conf|
-          toolchain :gcc
-          
-          conf.cc.command = 'x86_64-w64-mingw32-gcc'
-          conf.cxx.command = 'x86_64-w64-mingw32-g++'
-          conf.linker.command = 'x86_64-w64-mingw32-gcc'
-          conf.archiver.command = 'x86_64-w64-mingw32-ar'
-          
-          conf.gembox 'default'
-          conf.gem :core => 'mruby-bin-mruby'
-          conf.gem :core => 'mruby-bin-mirb'
-          
-          conf.cc.flags = ['-O2', '-Wall']
-          conf.linker.flags = ['-static']
-        end
-        EOF
-    
-    - name: Build mruby for Windows
-      run: |
-        cd mruby
-        make MRUBY_CONFIG=cross_config.rb
-    
-    - name: Find Windows binaries
-      run: |
-        cd mruby
-        find build -name "*.exe" -exec file {} \;
-        ls -la build/windows-x64/bin/ 2>/dev/null || true
-    
-    - name: Package
-      run: |
-        cd mruby
-        mkdir -p ../mruby-win
-        cp build/windows-x64/bin/*.exe ../mruby-win/ 2>/dev/null || true
-        cp -r build/windows-x64/lib ../mruby-win/ 2>/dev/null || true
-        cp -r include ../mruby-win/ 2>/dev/null || true
-        cd ..
-        zip -r mruby-win64.zip mruby-win/
-        ls -la mruby-win64.zip
-    
-    - name: Upload
-      uses: actions/upload-artifact@v4
-      with:
-        name: mruby-windows
-        path: mruby-win64.zip
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gnat
+            mingw-w64-ucrt-x86_64-gprbuild
+            make
+
+      - name: Show GNAT version
+        shell: msys2 {0}
+        run: |
+          gnat --version
+          gprbuild --version
+
+      - name: Build with gprbuild
+        shell: msys2 {0}
+        run: |
+          gprbuild -P sysinfo.gpr -j0
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysinfo-windows
+          path: bin/*.exe
+          if-no-files-found: error
