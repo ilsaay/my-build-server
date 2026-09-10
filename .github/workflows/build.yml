@@ -16,18 +16,31 @@ jobs:
         shell: powershell
         run: |
           rustup toolchain install 1.60.1 --profile minimal
-          rustup default 1.60.1
+          rustup run 1.60.1 rustc --version
 
-          Write-Host "========================================"
-          rustc --version
-          cargo --version
-          Write-Host "========================================"
+      - name: Check source
+        shell: powershell
+        run: |
+          Write-Host "Current directory:"
+          Get-Location
+
+          Write-Host ""
+          Write-Host "Files:"
+          Get-ChildItem -Recurse -File | Select-Object FullName
+
+          if (!(Test-Path "src\main.rs")) {
+            Write-Error "src\main.rs not found!"
+            exit 1
+          }
 
       - name: Build
         shell: powershell
         run: |
-          rustc --version
-          rustc main.rs -C opt-level=3 -C lto=yes -C codegen-units=1 -C panic=abort -o rust-control.exe
+          rustup run 1.60.1 rustc src\main.rs `
+            -C opt-level=3 `
+            -C codegen-units=1 `
+            -C panic=abort `
+            -o rust-control.exe
 
       - name: Check EXE
         shell: powershell
