@@ -18,12 +18,17 @@ import std.format;
 import std.array : replicate;
 
 // ── 显式声明缺失的 Win32 函数 ───────────────────────────────
-extern(Windows) nothrow @nogc:
+// 注意：用 {} 而不是 :，避免属性污染后续代码
+extern(Windows)
+{
     ULONGLONG GetTickCount64();
+}
 
-extern(C) nothrow @nogc:
+extern(C)
+{
     int _kbhit();
     int _getch();
+}
 
 // ── 全局开关 ────────────────────────────────────────────────
 __gshared bool g_running = true;
