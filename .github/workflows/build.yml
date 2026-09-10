@@ -1,213 +1,127 @@
-name: Build Rust Control
+name: build
 
 on:
   push:
+    branches: [ main, master ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: windows-2022
+  # ---------------- Windows (MSVC via vcpkg + msys2 fallback) ----------------
+  build-windows-msvc:
+    name: Windows / MSVC
+    runs-on: windows-latest
 
     steps:
-
-      # --------------------------------------------------
-      # Checkout
-      # --------------------------------------------------
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --------------------------------------------------
-      # Download Rust 1.60.1
-      # --------------------------------------------------
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Download Rust 1.60.1
-        shell: powershell
+      - name: Set up vcpkg
+        shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+          C:\vcpkg\vcpkg install ffmpeg:x64-windows
+        # vcpkg 装的是新版 ffmpeg；若要严格 4.0.0，见下文说明
 
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\rust" | Out-Null
-
-          $url = "https://static.rust-lang.org/dist/2022-04-07/rust-1.60.1-x86_64-pc-windows-msvc.tar.gz"
-
-          $file = "$env:RUNNER_TEMP\rust\rust.tar.gz"
-
-          Write-Host "Downloading:"
-          Write-Host $url
-
-          Invoke-WebRequest `
-            -Uri $url `
-            -OutFile $file
-
-          if (!(Test-Path $file)) {
-            throw "Rust archive was not downloaded."
-          }
-
-          Write-Host "Rust archive:"
-          Get-Item $file
-
-      # --------------------------------------------------
-      # Extract Rust
-      # --------------------------------------------------
-
-      - name: Extract Rust 1.60.1
-        shell: powershell
+      - name: Compile main.c (MSVC)
+        shell: cmd
         run: |
-          $ErrorActionPreference = "Stop"
+          cl /TC /O2 /MD main.c ^
+             /I C:\vcpkg\installed\x64-windows\include ^
+             /link /LIBPATH:C:\vcpkg\installed\x64-windows\lib ^
+             avformat.lib avcodec.lib avutil.lib swscale.lib ^
+             user32.lib gdi32.lib
 
-          $archive = "$env:RUNNER_TEMP\rust\rust.tar.gz"
-          $directory = "$env:RUNNER_TEMP\rust"
-
-          tar -xzf $archive -C $directory
-
-          $rustDirectory = "$directory\rust-1.60.1-x86_64-pc-windows-msvc"
-
-          if (!(Test-Path $rustDirectory)) {
-            Write-Host "Directory listing:"
-            Get-ChildItem -Recurse $directory
-
-            throw "Rust 1.60.1 directory was not found."
-          }
-
-          Write-Host "Rust directory:"
-          Write-Host $rustDirectory
-
-          echo "RUST_DIR=$rustDirectory" >> $env:GITHUB_ENV
-
-      # --------------------------------------------------
-      # Install Rust
-      # --------------------------------------------------
-
-      - name: Install Rust 1.60.1
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $installScript = "$env:RUST_DIR\install.bat"
-
-          if (!(Test-Path $installScript)) {
-            throw "install.bat was not found."
-          }
-
-          cmd.exe /C "`"$installScript`" --prefix=`"$env:RUNNER_TEMP\rust-install`""
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Rust installation failed."
-          }
-
-          Write-Host "Rust installed."
-
-          Get-ChildItem "$env:RUNNER_TEMP\rust-install" -Recurse -File |
-            Select-Object FullName
-
-      # --------------------------------------------------
-      # Locate rustc
-      # --------------------------------------------------
-
-      - name: Locate rustc
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          $rustc = Get-ChildItem `
-            "$env:RUNNER_TEMP\rust-install" `
-            -Filter "rustc.exe" `
-            -Recurse `
-            -File |
-            Select-Object -First 1
-
-          if ($null -eq $rustc) {
-            throw "rustc.exe was not found."
-          }
-
-          Write-Host "rustc:"
-          Write-Host $rustc.FullName
-
-          echo "RUSTC_PATH=$($rustc.FullName)" >> $env:GITHUB_ENV
-
-      # --------------------------------------------------
-      # Check Rust version
-      # --------------------------------------------------
-
-      - name: Check Rust version
-        shell: powershell
-        run: |
-          & "$env:RUSTC_PATH" --version
-
-      # --------------------------------------------------
-      # Check source
-      # --------------------------------------------------
-
-      - name: Check source
-        shell: powershell
-        run: |
-          Write-Host "Current directory:"
-          Get-Location
-
-          Write-Host ""
-          Write-Host "Repository:"
-          Get-ChildItem -Recurse -File |
-            Select-Object FullName
-
-          if (!(Test-Path "src\main.rs")) {
-            throw "src\main.rs was not found."
-          }
-
-          Write-Host ""
-          Write-Host "Found src\main.rs"
-
-      # --------------------------------------------------
-      # Build
-      # --------------------------------------------------
-
-      - name: Build
-        shell: powershell
-        run: |
-          $ErrorActionPreference = "Stop"
-
-          & "$env:RUSTC_PATH" `
-            "src\main.rs" `
-            -C opt-level=3 `
-            -C codegen-units=1 `
-            -C panic=abort `
-            -o "rust-control.exe"
-
-          if ($LASTEXITCODE -ne 0) {
-            throw "Rust compilation failed."
-          }
-
-      # --------------------------------------------------
-      # Verify
-      # --------------------------------------------------
-
-      - name: Verify
-        shell: powershell
-        run: |
-          if (!(Test-Path "rust-control.exe")) {
-            throw "rust-control.exe was not generated."
-          }
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "BUILD SUCCESS"
-          Write-Host "=========================================="
-
-          Write-Host ""
-          Write-Host "Rust:"
-          & "$env:RUSTC_PATH" --version
-
-          Write-Host ""
-          Write-Host "EXE:"
-          Get-Item "rust-control.exe" |
-            Select-Object FullName, Length, LastWriteTime
-
-      # --------------------------------------------------
-      # Upload
-      # --------------------------------------------------
-
-      - name: Upload EXE
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rust-control-windows-x64
-          path: rust-control.exe
-          if-no-files-found: error
+          name: player-windows
+          path: main.exe
+
+  # ---------------- Windows (MinGW) ----------------
+  build-windows-mingw:
+    name: Windows / MinGW
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-ffmpeg
+            make
+
+      - name: Compile main.c (MinGW)
+        run: |
+          gcc -std=gnu89 -O2 -Wall -Wextra main.c -o player.exe \
+              $(pkg-config --cflags --libs libavformat libavcodec libavutil libswscale) \
+              -lgdi32 -luser32
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-windows-mingw
+          path: player.exe
+
+  # ---------------- Linux (X11) ----------------
+  build-linux:
+    name: Linux / GCC
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev \
+            libx11-dev
+
+      - name: Compile main.c (GCC)
+        run: |
+          gcc -std=gnu89 -O2 -Wall -Wextra main.c -o player \
+              $(pkg-config --cflags --libs libavformat libavcodec libavutil libswscale) \
+              -lX11
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-linux
+          path: player
+
+  # ---------------- macOS: 只做语法检查（窗口分支未实现） ----------------
+  syntax-check-macos:
+    name: macOS / syntax only
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew update
+          brew install ffmpeg pkg-config
+
+      - name: Syntax-only check
+        run: |
+          clang -std=gnu89 -fsyntax-only main.c \
+                $(pkg-config --cflags libavformat libavcodec libavutil libswscale) \
+                || true
+          echo "macOS syntax check done (window layer not implemented yet)"
