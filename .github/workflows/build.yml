@@ -16,29 +16,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
+      - name: Setup D (DMD)
+        uses: dlang-community/setup-dlang@v2
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            mingw-w64-ucrt-x86_64-gcc-ada
-            mingw-w64-ucrt-x86_64-gprbuild
+          compiler: dmd
 
-      - name: Show toolchain versions
-        shell: msys2 {0}
-        run: |
-          gnat --version
-          gprbuild --version
+      - name: Show D version
+        run: dmd --version
 
       - name: Build
-        shell: msys2 {0}
         run: |
-          gprbuild -P sysinfo.gpr -j0
+          mkdir bin
+          dmd -O -release -of=bin\sysinfo.exe src\main.d
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: sysinfo-windows
-          path: bin/main.exe
+          path: bin/sysinfo.exe
           if-no-files-found: error
