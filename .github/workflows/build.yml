@@ -17,6 +17,7 @@ jobs:
           repository: AbsInt/CompCert
           ref: v3.13.1
           fetch-depth: 1
+          set-safe-directory: false
 
       - name: Set up Cygwin
         uses: egor-tensin/setup-cygwin@v4
@@ -27,11 +28,12 @@ jobs:
       - name: Install Coq and dependencies via opam
         shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          opam init --disable-sandboxing -y
-          # 直接使用系统已装的 OCaml 4.14.2，避免从源码编译卡住
+          # 用 yes 自动回答 opam init 的交互提示
+          yes | opam init --disable-sandboxing -y
           opam switch create system ocaml-system.4.14.2
           eval $(opam env)
-          opam install coq.8.18.0 coq-flocq coq-menhirlib menhir -y
+          opam update
+          opam install coq.8.18.0 menhir -y
 
       - name: Configure CompCert for Cygwin
         shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
