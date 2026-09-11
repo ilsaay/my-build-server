@@ -1,61 +1,51 @@
-name: Build GCC from Source (Windows)
+name: Build CompCert for Windows
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches: [ main, master ]
 
 jobs:
-  build-gcc:
+  build:
     runs-on: windows-latest
-
-    defaults:
-      run:
-        shell: msys2 {0}
+    timeout-minutes: 360  # Coq 编译耗时很长，给足时间
 
     steps:
-      - name: Setup MSYS2 with build tools
-        uses: msys2/setup-msys2@v2
+      - name: Checkout CompCert
+        uses: actions/checkout@v4
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            base-devel
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gmp
-            mingw-w64-ucrt-x86_64-mpfr
-            mingw-w64-ucrt-x86_64-mpc
-            mingw-w64-ucrt-x86_64-isl
-            mingw-w64-ucrt-x86_64-zlib
-            mingw-w64-ucrt-x86_64-zstd
-            wget
-            tar
+          repository: AbsInt/CompCert
+          ref: v3.13.1  # 稳定版本，支持 Cygwin 构建
+          fetch-depth: 1
 
-      - name: Download GCC source
-        run: |
-          cd "$(cygpath "$GITHUB_WORKSPACE")"
-          wget https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz
-          tar -xf gcc-14.2.0.tar.xz
+      - name: Set up Cygwin
+        uses: egor-tensin/setup-cygwin@v4
+        with:
+          packages: gcc make ocaml ocaml-findlib opam menhir
+          install-dir: C:\tools\cygwin
 
-      - name: Configure GCC (C + Fortran only)
+      - name: Install Coq and dependencies via opam
+        shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          cd "$(cygpath "$GITHUB_WORKSPACE")"
-          mkdir build && cd build
-          ../gcc-14.2.0/configure \
-            --prefix=/ucrt64/gcc-custom \
-            --enable-languages=c,fortran \
-            --disable-bootstrap \
-            --disable-multilib
+          opam init --disable-sandboxing -y
+          opam switch create 4.14.0
+          eval $(opam env)
+          opam install coq.8.18.0 coq-flocq coq-menhirlib menhir -y
 
-      - name: Build GCC
+      - name: Configure CompCert for Cygwin
+        shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          cd "$(cygpath "$GITHUB_WORKSPACE")/build"
+          eval $(opam env)
+          ./configure x86_64-cygwin -ignore-coq-version
+
+      - name: Build CompCert
+        shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
+        run: |
+          eval $(opam env)
           make -j$(nproc)
 
-      - name: Install GCC
-        run: |
-          cd "$(cygpath "$GITHUB_WORKSPACE")/build"
-          make install
-
-      - name: Package
-        run: |
-          cd /ucrt64/gcc-custom
-          tar -czf "$(cygpath "$GITHUB_WORKSPACE")/gcc-custom-windows.tar.gz" .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: compcert-windows
+          path: ./ccomp
