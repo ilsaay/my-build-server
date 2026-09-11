@@ -2,6 +2,7 @@ name: Build GCC Windows
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -13,7 +14,8 @@ jobs:
         shell: msys2 {0}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup MSYS2 (UCRT64)
         uses: msys2/setup-msys2@v2
@@ -24,19 +26,27 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-gcc-fortran
 
-      - name: Verify
+      - name: Verify compilers
         run: |
           gcc --version
           gfortran --version
 
+      - name: Show workspace files
+        run: |
+          cd "$(cygpath "$GITHUB_WORKSPACE")"
+          echo "=== 当前目录 ==="
+          pwd
+          echo "=== 文件列表 ==="
+          ls -la
+
       - name: Build C (C89)
         run: |
-          # 替换成你的 C 源文件
+          cd "$(cygpath "$GITHUB_WORKSPACE")"
           gcc -std=c89 -pedantic -o hello_c.exe hello.c
 
       - name: Build Fortran
         run: |
-          # 替换成你的 Fortran 源文件
+          cd "$(cygpath "$GITHUB_WORKSPACE")"
           gfortran -o hello_f.exe hello.f90
 
       - name: Upload artifacts
@@ -44,4 +54,6 @@ jobs:
         with:
           name: windows-binaries
           path: |
-            *.exe
+            hello_c.exe
+            hello_f.exe
+          if-no-files-found: warn
