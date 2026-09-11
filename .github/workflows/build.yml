@@ -1,127 +1,38 @@
-name: build
+name: Build C89 & Fortran
 
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-  workflow_dispatch:
+on: [push, pull_request]
 
 jobs:
-  # ---------------- Windows (MSVC via vcpkg + msys2 fallback) ----------------
-  build-windows-msvc:
-    name: Windows / MSVC
+  build:
     runs-on: windows-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Set up vcpkg
-        shell: pwsh
-        run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
-          C:\vcpkg\bootstrap-vcpkg.bat
-          C:\vcpkg\vcpkg install ffmpeg:x64-windows
-        # vcpkg 装的是新版 ffmpeg；若要严格 4.0.0，见下文说明
-
-      - name: Compile main.c (MSVC)
-        shell: cmd
-        run: |
-          cl /TC /O2 /MD main.c ^
-             /I C:\vcpkg\installed\x64-windows\include ^
-             /link /LIBPATH:C:\vcpkg\installed\x64-windows\lib ^
-             avformat.lib avcodec.lib avutil.lib swscale.lib ^
-             user32.lib gdi32.lib
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: player-windows
-          path: main.exe
-
-  # ---------------- Windows (MinGW) ----------------
-  build-windows-mingw:
-    name: Windows / MinGW
-    runs-on: windows-latest
     defaults:
       run:
         shell: msys2 {0}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup MSYS2
+      - name: Setup MSYS2 (UCRT64)
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-ffmpeg
-            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-fortran
 
-      - name: Compile main.c (MinGW)
+      - name: Verify compilers
         run: |
-          gcc -std=gnu89 -O2 -Wall -Wextra main.c -o player.exe \
-              $(pkg-config --cflags --libs libavformat libavcodec libavutil libswscale) \
-              -lgdi32 -luser32
+          gcc --version
+          gfortran --version
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: player-windows-mingw
-          path: player.exe
-
-  # ---------------- Linux (X11) ----------------
-  build-linux:
-    name: Linux / GCC
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install deps
+      - name: Build (C89 strict)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential pkg-config \
-            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev \
-            libx11-dev
+          # 你的 C 代码编译命令，强制 C89 标准
+          # gcc -std=c89 -pedantic -o myprogram.exe source.c
 
-      - name: Compile main.c (GCC)
+      - name: Build (Fortran)
         run: |
-          gcc -std=gnu89 -O2 -Wall -Wextra main.c -o player \
-              $(pkg-config --cflags --libs libavformat libavcodec libavutil libswscale) \
-              -lX11
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: player-linux
-          path: player
-
-  # ---------------- macOS: 只做语法检查（窗口分支未实现） ----------------
-  syntax-check-macos:
-    name: macOS / syntax only
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install deps
-        run: |
-          brew update
-          brew install ffmpeg pkg-config
-
-      - name: Syntax-only check
-        run: |
-          clang -std=gnu89 -fsyntax-only main.c \
-                $(pkg-config --cflags libavformat libavcodec libavutil libswscale) \
-                || true
-          echo "macOS syntax check done (window layer not implemented yet)"
+          # 你的 Fortran 代码编译命令
+          # gfortran -o myprogram.exe source.f90
