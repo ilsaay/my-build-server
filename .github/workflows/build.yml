@@ -1,21 +1,21 @@
 name: Build CompCert for Windows
 
 on:
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
   push:
     branches: [ main, master ]
 
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 360  # Coq 编译耗时很长，给足时间
+    timeout-minutes: 360
 
     steps:
       - name: Checkout CompCert
         uses: actions/checkout@v4
         with:
           repository: AbsInt/CompCert
-          ref: v3.13.1  # 稳定版本，支持 Cygwin 构建
+          ref: v3.13.1
           fetch-depth: 1
 
       - name: Set up Cygwin
@@ -28,7 +28,8 @@ jobs:
         shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
           opam init --disable-sandboxing -y
-          opam switch create 4.14.0
+          # 直接使用系统已装的 OCaml 4.14.2，避免从源码编译卡住
+          opam switch create system ocaml-system.4.14.2
           eval $(opam env)
           opam install coq.8.18.0 coq-flocq coq-menhirlib menhir -y
 
