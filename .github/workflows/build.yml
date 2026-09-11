@@ -1,12 +1,10 @@
-name: Build GCC Windows
+name: Build GCC from Source (Windows)
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-gcc:
     runs-on: windows-latest
 
     defaults:
@@ -14,58 +12,50 @@ jobs:
         shell: msys2 {0}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup MSYS2 (UCRT64)
+      - name: Setup MSYS2 with build tools
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           update: true
           install: >-
+            base-devel
             mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-gmp
+            mingw-w64-ucrt-x86_64-mpfr
+            mingw-w64-ucrt-x86_64-mpc
+            mingw-w64-ucrt-x86_64-isl
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-zstd
+            wget
+            tar
 
-      - name: Verify compilers
-        run: |
-          gcc --version
-          gfortran --version
-
-      - name: Check source files
-        run: |
-          cd "$(cygpath "$GITHUB_WORKSPACE")"
-          echo "=== 当前目录 ==="
-          pwd
-          echo "=== 查找 hello.c ==="
-          find . -name "hello.c" -print
-          echo "=== 查找 hello.f90 ==="
-          find . -name "hello.f90" -print
-          echo "=== 全部文件 ==="
-          find . -type f
-
-      - name: Build C (C89)
+      - name: Download GCC source
         run: |
           cd "$(cygpath "$GITHUB_WORKSPACE")"
-          if [ ! -f hello.c ]; then
-            echo "错误：hello.c 不存在，请检查是否已提交到仓库"
-            exit 1
-          fi
-          gcc -std=c89 -pedantic -o hello_c.exe hello.c
+          wget https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz
+          tar -xf gcc-14.2.0.tar.xz
 
-      - name: Build Fortran
+      - name: Configure GCC (C + Fortran only)
         run: |
           cd "$(cygpath "$GITHUB_WORKSPACE")"
-          if [ ! -f hello.f90 ]; then
-            echo "错误：hello.f90 不存在，请检查是否已提交到仓库"
-            exit 1
-          fi
-          gfortran -o hello_f.exe hello.f90
+          mkdir build && cd build
+          ../gcc-14.2.0/configure \
+            --prefix=/ucrt64/gcc-custom \
+            --enable-languages=c,fortran \
+            --disable-bootstrap \
+            --disable-multilib
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-binaries
-          path: |
-            hello_c.exe
-            hello_f.exe
-          if-no-files-found: warn
+      - name: Build GCC
+        run: |
+          cd "$(cygpath "$GITHUB_WORKSPACE")/build"
+          make -j$(nproc)
+
+      - name: Install GCC
+        run: |
+          cd "$(cygpath "$GITHUB_WORKSPACE")/build"
+          make install
+
+      - name: Package
+        run: |
+          cd /ucrt64/gcc-custom
+          tar -czf "$(cygpath "$GITHUB_WORKSPACE")/gcc-custom-windows.tar.gz" .
