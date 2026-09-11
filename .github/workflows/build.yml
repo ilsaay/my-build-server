@@ -1,6 +1,8 @@
-name: Build C89 & Fortran
+name: Build GCC Windows
 
-on: [push, pull_request]
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,17 +24,24 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-gcc-fortran
 
-      - name: Verify compilers
+      - name: Verify
         run: |
           gcc --version
           gfortran --version
 
-      - name: Build (C89 strict)
+      - name: Build C (C89)
         run: |
-          # 你的 C 代码编译命令，强制 C89 标准
-          # gcc -std=c89 -pedantic -o myprogram.exe source.c
+          # 替换成你的 C 源文件
+          gcc -std=c89 -pedantic -o hello_c.exe hello.c
 
-      - name: Build (Fortran)
+      - name: Build Fortran
         run: |
-          # 你的 Fortran 代码编译命令
-          # gfortran -o myprogram.exe source.f90
+          # 替换成你的 Fortran 源文件
+          gfortran -o hello_f.exe hello.f90
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            *.exe
