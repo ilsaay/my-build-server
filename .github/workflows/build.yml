@@ -31,22 +31,34 @@ jobs:
           gcc --version
           gfortran --version
 
-      - name: Show workspace files
+      - name: Check source files
         run: |
           cd "$(cygpath "$GITHUB_WORKSPACE")"
           echo "=== 当前目录 ==="
           pwd
-          echo "=== 文件列表 ==="
-          ls -la
+          echo "=== 查找 hello.c ==="
+          find . -name "hello.c" -print
+          echo "=== 查找 hello.f90 ==="
+          find . -name "hello.f90" -print
+          echo "=== 全部文件 ==="
+          find . -type f
 
       - name: Build C (C89)
         run: |
           cd "$(cygpath "$GITHUB_WORKSPACE")"
+          if [ ! -f hello.c ]; then
+            echo "错误：hello.c 不存在，请检查是否已提交到仓库"
+            exit 1
+          fi
           gcc -std=c89 -pedantic -o hello_c.exe hello.c
 
       - name: Build Fortran
         run: |
           cd "$(cygpath "$GITHUB_WORKSPACE")"
+          if [ ! -f hello.f90 ]; then
+            echo "错误：hello.f90 不存在，请检查是否已提交到仓库"
+            exit 1
+          fi
           gfortran -o hello_f.exe hello.f90
 
       - name: Upload artifacts
