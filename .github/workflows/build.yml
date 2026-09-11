@@ -22,7 +22,7 @@ jobs:
       - name: Set up Cygwin
         uses: egor-tensin/setup-cygwin@v4
         with:
-          packages: gcc make ocaml ocaml-findlib opam menhir
+          packages: gcc make ocaml ocaml-findlib opam menhir pkg-config libgmp-devel
           install-dir: C:\tools\cygwin
 
       - name: Install Coq and dependencies via opam
@@ -32,7 +32,8 @@ jobs:
           opam switch create system ocaml-system.4.14.2
           eval $(opam env)
           opam update
-          opam install coq.8.18.0 menhir -y
+          # dune 钉在 3.20.0，避开 3.23.1 在 Cygwin 下的 blake3 撞名 bug
+          opam install coq.8.18.0 menhir dune.3.20.0 -y
 
       - name: Configure CompCert for Cygwin
         shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
