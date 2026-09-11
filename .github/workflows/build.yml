@@ -28,8 +28,7 @@ jobs:
       - name: Install Coq and dependencies via opam
         shell: C:\tools\cygwin\bin\bash.exe --login -eo pipefail -o igncr '{0}'
         run: |
-          # 用 yes 自动回答 opam init 的交互提示
-          yes | opam init --disable-sandboxing -y
+          opam init --disable-sandboxing -y --no-setup
           opam switch create system ocaml-system.4.14.2
           eval $(opam env)
           opam update
