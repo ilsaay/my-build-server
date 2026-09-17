@@ -367,16 +367,6 @@ jobs:
                   if (!line.startsWith("A1 OK")) throw ImapException("登录失败: $line")
               }
 
-              private fun readResponse(reader: BufferedReader, tag: String): List<String> {
-                  val lines = mutableListOf<String>()
-                  while (true) {
-                      val line = reader.readLine() ?: break
-                      lines.add(line)
-                      if (line.startsWith("$tag ")) break
-                  }
-                  return lines
-              }
-
               fun fetchInbox(user: String, pass: String, limit: Int = 20): List<MailHeader> {
                   val (socket, reader) = open(user, pass)
                   val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, "UTF-8"))
@@ -522,8 +512,6 @@ jobs:
 
                   setContentView(R.layout.activity_login)
 
-                  val userLayout = findViewById<TextInputLayout>(R.id.userLayout)
-                  val passLayout = findViewById<TextInputLayout>(R.id.passLayout)
                   val userInput = findViewById<TextInputEditText>(R.id.userInput)
                   val passInput = findViewById<TextInputEditText>(R.id.passInput)
                   val loginBtn = findViewById<MaterialButton>(R.id.loginBtn)
@@ -536,7 +524,6 @@ jobs:
                           return@setOnClickListener
                       }
                       Prefs.save(this, Prefs.Account(u, p))
-                      Toast.makeText(this, "已保存，正在登录", Toast.LENGTH_SHORT).show()
                       startActivity(Intent(this, InboxActivity::class.java))
                       finish()
                   }
@@ -717,11 +704,12 @@ jobs:
                   fromView.text = intent.getStringExtra("from") ?: ""
                   dateView.text = intent.getStringExtra("date") ?: ""
                   val uid = intent.getStringExtra("uid") ?: ""
+                  val acc = Prefs.load(this)
 
                   progress.visibility = View.VISIBLE
                   thread {
                       val body = try {
-                          ImapClient.fetchBody(Prefs.load(this).user, Prefs.load(this).pass, uid).body
+                          ImapClient.fetchBody(acc.user, acc.pass, uid).body
                       } catch (e: Exception) {
                           "加载失败: ${e.message}"
                       }
@@ -872,6 +860,7 @@ jobs:
           cat > app/src/main/res/layout/activity_inbox.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
               android:layout_width="match_parent"
               android:layout_height="match_parent"
               android:orientation="vertical">
@@ -881,8 +870,7 @@ jobs:
                   android:layout_width="match_parent"
                   android:layout_height="?attr/actionBarSize"
                   android:background="?attr/colorPrimaryContainer"
-                  app:titleTextColor="?attr/colorOnPrimaryContainer"
-                  xmlns:app="http://schemas.android.com/apk/res-auto"/>
+                  app:titleTextColor="?attr/colorOnPrimaryContainer"/>
 
               <FrameLayout
                   android:layout_width="match_parent"
@@ -1104,17 +1092,24 @@ jobs:
           </LinearLayout>
           EOF
 
-      - name: Generate gradle wrapper
+      - name: Create gradle wrapper
         working-directory: app/sendemail
-        run: gradle wrapper --gradle-version 8.2
-
-      - name: Grant execute permission for gradlew
-        working-directory: app/sendemail
-        run: chmod +x gradlew
+        run: |
+          mkdir -p gradle/wrapper
+          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.2-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+          wget -q https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradlew -O gradlew
+          wget -q https://raw.githubusercontent.com/gradle/gradle/v8.2.0/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew
 
       - name: Build debug APK
         working-directory: app/sendemail
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
