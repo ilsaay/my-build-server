@@ -1,4 +1,4 @@
-name: Build send.email APK
+name: Scaffold send.email Project
 
 on:
   push:
@@ -6,34 +6,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  scaffold:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Android SDK
-        run: |
-          mkdir -p $ANDROID_HOME/cmdline-tools
-          cd $ANDROID_HOME/cmdline-tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip
-          mv cmdline-tools latest
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-
-      - name: Scaffold Android project
-        working-directory: app/send.email
+      - name: Create standard Android project structure
+        working-directory: app/sendemail
         run: |
           set -e
 
+          # 项目级 build.gradle
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.2.0' apply false
@@ -41,6 +26,7 @@ jobs:
           }
           EOF
 
+          # settings.gradle
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories {
@@ -59,15 +45,19 @@ jobs:
           include ':app'
           EOF
 
+          # gradle.properties
           cat > gradle.properties <<'EOF'
           android.useAndroidX=true
           kotlin.code.style=official
           org.gradle.jvmargs=-Xmx2048m
           EOF
 
+          # 标准目录
           mkdir -p app/src/main/java/com/sendemail
           mkdir -p app/src/main/res/values
+          mkdir -p gradle/wrapper
 
+          # app/build.gradle
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -99,6 +89,7 @@ jobs:
           }
           EOF
 
+          # AndroidManifest.xml
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -122,6 +113,7 @@ jobs:
           </manifest>
           EOF
 
+          # strings.xml
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -129,6 +121,7 @@ jobs:
           </resources>
           EOF
 
+          # themes.xml
           cat > app/src/main/res/values/themes.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -136,27 +129,22 @@ jobs:
           </resources>
           EOF
 
-      - name: Copy Kotlin sources
+          # gradle-wrapper.properties（只创建配置，不下载 jar）
+          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.2-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          echo "=== 生成的文件结构 ==="
+          find . -type f | sort
+
+      - name: Commit and push
         run: |
-          # 把仓库里 app/send.email/ 根下的 .kt 文件搬到标准位置
-          mkdir -p app/send.email/app/src/main/java/com/sendemail
-          find app/send.email -maxdepth 1 -name '*.kt' -exec cp {} app/send.email/app/src/main/java/com/sendemail/ \;
-          ls -la app/send.email/app/src/main/java/com/sendemail/
-
-      - name: Generate gradle wrapper
-        working-directory: app/send.email
-        run: gradle wrapper --gradle-version 8.2
-
-      - name: Grant execute permission for gradlew
-        working-directory: app/send.email
-        run: chmod +x gradlew
-
-      - name: Build debug APK
-        working-directory: app/send.email
-        run: ./gradlew assembleDebug
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: send-email-debug
-          path: app/send.email/app/build/outputs/apk/debug/*.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/sendemail
+          git diff --staged --quiet || git commit -m "chore: scaffold send.email Android project structure"
+          git push
