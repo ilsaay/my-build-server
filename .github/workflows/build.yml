@@ -8,22 +8,23 @@ permissions:
 
 env:
   FREEBSD_VERSION: "14.3"
-  FREEBSD_ARCH: "amd64"
+  TARGET: "amd64"
+  TARGET_ARCH: "amd64"
 
 jobs:
   build:
-    name: Build FreeBSD Java17 EFI Server
+    name: FreeBSD 14.3 Java17 amd64
     runs-on: ubuntu-24.04
 
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
 
-      # ============================================================
-      # 1. Install build tools
-      # ============================================================
+      # ==========================================================
+      # 1. Install build dependencies
+      # ==========================================================
 
-      - name: Install build tools
+      - name: Install build dependencies
         shell: bash
         run: |
           set -eux
@@ -31,191 +32,183 @@ jobs:
           sudo apt-get update
 
           sudo apt-get install -y \
-            qemu-system-x86 \
+            git \
+            subversion \
+            ca-certificates \
+            curl \
+            wget \
+            xz-utils \
+            bzip2 \
+            gzip \
+            tar \
+            unzip \
+            rsync \
             qemu-utils \
+            qemu-system-x86 \
             ovmf \
             xorriso \
-            libarchive-tools \
-            wget \
-            curl \
-            openssh-client \
-            sshpass
+            pkg-config \
+            libarchive-tools
 
-      # ============================================================
-      # 2. Download FreeBSD 14.3 amd64
-      # ============================================================
+      # ==========================================================
+      # 2. Prepare workspace
+      # ==========================================================
 
-      - name: Download FreeBSD
+      - name: Prepare workspace
         shell: bash
         run: |
           set -eux
 
-          mkdir -p work
-          cd work
+          mkdir -p \
+            "$GITHUB_WORKSPACE/work" \
+            "$GITHUB_WORKSPACE/output"
 
-          URL="https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/${FREEBSD_VERSION}/FreeBSD-${FREEBSD_VERSION}-RELEASE-${FREEBSD_ARCH}-disc1.iso"
+          df -h
 
-          echo "Downloading:"
-          echo "$URL"
-
-          wget \
-            --progress=dot:giga \
-            "$URL" \
-            -O freebsd.iso
-
-          test -s freebsd.iso
-
-          ls -lh freebsd.iso
-
-      # ============================================================
-      # 3. Create automatic installer configuration
+      # ==========================================================
+      # 3. Download FreeBSD 14.3 source
       #
-      # FreeBSD bsdinstall supports /etc/installerconfig.
-      #
-      # GPT + UFS
-      # EFI boot partition is created automatically.
-      # ============================================================
+      # We use the official FreeBSD src tree.
+      # ==========================================================
 
-      - name: Create installerconfig
+      - name: Download FreeBSD source
         shell: bash
         run: |
           set -eux
 
-          cd work
+          cd "$GITHUB_WORKSPACE/work"
 
-          cat > installerconfig <<'EOF'
-          #!/bin/sh
+          git clone \
+            --depth 1 \
+            --branch releng/14.3 \
+            https://git.FreeBSD.org/src.git \
+            src
 
-          # --------------------------------------------------------
-          # FreeBSD automatic installation
-          # --------------------------------------------------------
+          cd src
 
-          # GPT partitioning.
+          git rev-parse HEAD
+
+      # ==========================================================
+      # 4. Create FreeBSD release.conf
+      # ==========================================================
+
+      - name: Create release configuration
+        shell: bash
+        run: |
+          set -eux
+
+          cd "$GITHUB_WORKSPACE/work"
+
+          cat > release.conf <<'EOF'
+          # ======================================================
+          # FreeBSD 14.3 Java17 Server
+          # ======================================================
+
+          TARGET="amd64"
+          TARGET_ARCH="amd64"
+
+          KERNEL="GENERIC"
+
+          # ------------------------------------------------------
+          # Release directory
+          # ------------------------------------------------------
+
+          CHROOTDIR="/scratch"
+
+          # ------------------------------------------------------
+          # Source tree
+          # ------------------------------------------------------
+
+          SRCBRANCH="releng/14.3"
+
+          # ------------------------------------------------------
+          # Build options
+          # ------------------------------------------------------
+
+          WITHOUT_DEBUG_FILES="yes"
+
+          WITHOUT_KERNEL_SYMBOLS="yes"
+
+          WITHOUT_MAN="no"
+
+          WITHOUT_PROFILE="yes"
+
+          # ------------------------------------------------------
+          # Packages
           #
-          # The FreeBSD installer automatically creates the EFI
-          # system partition when using GPT on amd64.
-          #
-          PARTITIONS="DEFAULT"
+          # OpenJDK 17 will be installed into the release.
+          # ------------------------------------------------------
 
-          # Install the normal FreeBSD base system.
-          DISTRIBUTIONS="base.txz kernel.txz"
+          EXTRA_PACKAGES="
+          openjdk17
+          "
 
-          # --------------------------------------------------------
-          # Setup script
-          # --------------------------------------------------------
+          # ------------------------------------------------------
+          # EFI boot
+          # ------------------------------------------------------
 
-          # Set root password.
-          echo 'root-build-password' | pw usermod root -h 0
+          WITH_EFI="yes"
 
-          # Hostname.
-          sysrc hostname="java-server"
+          # Do not build/install legacy BIOS boot code.
+          WITHOUT_BIOS="yes"
 
-          # DHCP.
-          sysrc ifconfig_DEFAULT="DHCP"
+          # ------------------------------------------------------
+          # Filesystem
+          # ------------------------------------------------------
 
-          # SSH.
-          sysrc sshd_enable="YES"
+          WITH_ZFS="no"
 
-          # Enable SSH root login temporarily.
-          #
-          # This is only used during the GitHub Actions build.
-          # The build workflow disables it later.
-          if [ -f /etc/ssh/sshd_config ]; then
+          # ------------------------------------------------------
+          # Compression
+          # ------------------------------------------------------
 
-              sed -i '' \
-                  's/^#PermitRootLogin no/PermitRootLogin yes/' \
-                  /etc/ssh/sshd_config
+          XZ_THREADS="0"
 
-              sed -i '' \
-                  's/^PermitRootLogin no/PermitRootLogin yes/' \
-                  /etc/ssh/sshd_config
+          XZ_COMPRESS_FLAGS="-9"
 
-              sed -i '' \
-                  's/^#PasswordAuthentication yes/PasswordAuthentication yes/' \
-                  /etc/ssh/sshd_config
+          EOF
 
-              sed -i '' \
-                  's/^PasswordAuthentication no/PasswordAuthentication yes/' \
-                  /etc/ssh/sshd_config
+          cat release.conf
 
-          fi
+      # ==========================================================
+      # 5. Create custom files
+      # ==========================================================
 
-          # --------------------------------------------------------
-          # Create first-boot provisioning service.
-          #
-          # OpenJDK cannot be installed safely during the
-          # bsdinstall chroot phase because networking has not
-          # necessarily been started yet.
-          #
-          # Therefore it is installed on the first real boot.
-          # --------------------------------------------------------
+      - name: Create custom FreeBSD files
+        shell: bash
+        run: |
+          set -eux
 
-          cat > /etc/rc.d/java-firstboot <<'RCEOF'
-          #!/bin/sh
+          cd "$GITHUB_WORKSPACE/work"
 
-          # PROVIDE: java_firstboot
-          # REQUIRE: NETWORKING
-          # BEFORE: LOGIN
-          # KEYWORD: firstboot
+          mkdir -p custom/etc
+          mkdir -p custom/etc/rc.d
+          mkdir -p custom/usr/local/bin
+          mkdir -p custom/srv/server
 
-          . /etc/rc.subr
+          # ------------------------------------------------------
+          # rc.conf
+          # ------------------------------------------------------
 
-          name="java_firstboot"
-          rcvar="java_firstboot_enable"
+          cat > custom/etc/rc.conf <<'EOF'
+          hostname="java-server"
 
-          start_cmd="java_firstboot_start"
+          sshd_enable="YES"
 
-          load_rc_config "$name"
+          java_server_enable="YES"
 
-          : ${java_firstboot_enable:="YES"}
+          dumpdev="NO"
 
-          java_firstboot_start()
-          {
-              (
-                  sleep 10
+          sendmail_enable="NONE"
 
-                  export ASSUME_ALWAYS_YES=yes
+          moused_nondefault_enable="NO"
+          EOF
 
-                  echo "======================================"
-                  echo " FreeBSD Java17 first boot"
-                  echo "======================================"
+          # ------------------------------------------------------
+          # Java server launcher
+          # ------------------------------------------------------
 
-                  echo "[1/7] Bootstrap pkg"
-
-                  if ! command -v pkg >/dev/null 2>&1; then
-                      env ASSUME_ALWAYS_YES=yes pkg bootstrap -f
-                  fi
-
-                  echo "[2/7] Updating pkg"
-
-                  pkg update -f
-
-                  echo "[3/7] Installing OpenJDK 17"
-
-                  pkg install -y java/openjdk17
-
-                  echo "[4/7] Creating java user"
-
-                  if ! pw usershow java >/dev/null 2>&1; then
-                      pw useradd java \
-                          -d /srv \
-                          -s /usr/sbin/nologin \
-                          -m
-                  fi
-
-                  echo "[5/7] Creating server directories"
-
-                  mkdir -p \
-                      /srv/server \
-                      /srv/server/logs
-
-                  chown -R java:java /srv
-
-                  chmod 750 /srv/server
-
-                  echo "[6/7] Creating Java server launcher"
-
-                  cat > /usr/local/bin/java-server <<'JAVAEOS'
+          cat > custom/usr/local/bin/java-server <<'EOF'
           #!/bin/sh
 
           set -eu
@@ -224,21 +217,24 @@ jobs:
 
           SERVER="/srv/server/server.jar"
 
-          if [ ! -f "$SERVER" ]; then
+          if [ ! -x "$JAVA" ]; then
+              echo "OpenJDK 17 was not found."
+              exit 1
+          fi
 
+          if [ ! -f "$SERVER" ]; then
               echo
-              echo "=============================================="
-              echo " Java Server"
-              echo "=============================================="
+              echo "=========================================="
+              echo " FreeBSD Java Server"
+              echo "=========================================="
               echo
               echo "server.jar not found."
               echo
-              echo "Put your JAR here:"
+              echo "Place your Java application here:"
               echo
-              echo "    /srv/server/server.jar"
+              echo "  /srv/server/server.jar"
               echo
               exit 1
-
           fi
 
           cd /srv/server
@@ -249,13 +245,15 @@ jobs:
               -XX:+UseG1GC \
               -jar "$SERVER" \
               nogui
-          JAVAEOS
+          EOF
 
-                  chmod 755 /usr/local/bin/java-server
+          chmod 755 custom/usr/local/bin/java-server
 
-                  echo "[7/7] Creating Java server service"
+          # ------------------------------------------------------
+          # Java server rc.d service
+          # ------------------------------------------------------
 
-                  cat > /usr/local/etc/rc.d/java-server <<'RCEOF2'
+          cat > custom/etc/rc.d/java-server <<'EOF'
           #!/bin/sh
 
           # PROVIDE: java_server
@@ -269,74 +267,51 @@ jobs:
 
           command="/usr/local/bin/java-server"
 
-          load_rc_config "$name"
+          start_cmd="java_server_start"
 
-          : ${java_server_enable:="YES"}
-
-          pidfile="/var/run/java-server.pid"
-
-          start_cmd="${name}_start"
+          stop_cmd="java_server_stop"
 
           java_server_start()
           {
               if [ ! -f /srv/server/server.jar ]; then
-                  echo "java-server: /srv/server/server.jar not found"
+                  echo "java-server: server.jar not found."
                   return 0
               fi
 
-              su -m java -c "/usr/local/bin/java-server > /srv/server/logs/server.log 2>&1 &"
+              if [ ! -d /srv/server/logs ]; then
+                  mkdir -p /srv/server/logs
+              fi
+
+              cd /srv/server
+
+              /usr/sbin/daemon \
+                  -p /var/run/java-server.pid \
+                  -o /srv/server/logs/server.log \
+                  /usr/local/bin/java-server
           }
 
-          run_rc_command "$1"
-          RCEOF2
-
-                  chmod 755 /usr/local/etc/rc.d/java-server
-
-                  sysrc java_server_enable="YES"
-
-                  echo
-                  echo "FreeBSD Java17 installation finished."
-                  echo
-
-                  # ------------------------------------------------
-                  # Disable temporary root SSH access.
-                  # ------------------------------------------------
-
-                  if [ -f /etc/ssh/sshd_config ]; then
-
-                      sed -i '' \
-                          's/^PermitRootLogin yes/PermitRootLogin no/' \
-                          /etc/ssh/sshd_config
-
-                      sed -i '' \
-                          's/^PasswordAuthentication yes/PasswordAuthentication no/' \
-                          /etc/ssh/sshd_config
-
-                  fi
-
-                  # Disable firstboot.
-                  sysrc java_firstboot_enable="NO"
-
-                  rm -f /etc/rc.d/java-firstboot
-
-                  echo
-                  echo "First boot provisioning complete."
-
-              ) >> /var/log/java-firstboot.log 2>&1 &
+          java_server_stop()
+          {
+              if [ -f /var/run/java-server.pid ]; then
+                  kill "$(cat /var/run/java-server.pid)" 2>/dev/null || true
+                  rm -f /var/run/java-server.pid
+              fi
           }
 
+          load_rc_config "$name"
+
+          : ${java_server_enable:="YES"}
+
           run_rc_command "$1"
-          RCEOF
+          EOF
 
-          chmod 755 /etc/rc.d/java-firstboot
+          chmod 755 custom/etc/rc.d/java-server
 
-          sysrc java_firstboot_enable="YES"
+          # ------------------------------------------------------
+          # System information
+          # ------------------------------------------------------
 
-          # --------------------------------------------------------
-          # Build information
-          # --------------------------------------------------------
-
-          cat > /etc/freebsd-java17-release <<'INFOEOF'
+          cat > custom/etc/freebsd-java17-release <<'EOF'
           FreeBSD Java17 Server
 
           FreeBSD:
@@ -348,312 +323,236 @@ jobs:
           Boot:
           EFI / UEFI
 
-          Filesystem:
-          UFS
-
           Java:
           OpenJDK 17
 
-          Java server directory:
-          /srv/server
+          Server:
+          /srv/server/server.jar
 
-          Java server executable:
+          Launcher:
           /usr/local/bin/java-server
 
-          INFOEOF
+          Service:
+          java_server
+
+          EOF
+
+          # ------------------------------------------------------
+          # Server directory
+          # ------------------------------------------------------
+
+          mkdir -p custom/srv/server/logs
+
+          echo "Custom files created."
+
+          find custom -type f -print
+
+      # ==========================================================
+      # 6. Create customization script
+      # ==========================================================
+
+      - name: Create customization script
+        shell: bash
+        run: |
+          set -eux
+
+          cd "$GITHUB_WORKSPACE/work"
+
+          cat > customize.sh <<'EOF'
+          #!/bin/sh
+
+          set -eux
+
+          ROOT="$1"
+
+          echo "Customizing FreeBSD release:"
+          echo "$ROOT"
+
+          # ------------------------------------------------------
+          # Copy custom configuration
+          # ------------------------------------------------------
+
+          cp -a custom/etc/rc.conf \
+              "$ROOT/etc/rc.conf"
+
+          mkdir -p "$ROOT/etc/rc.d"
+
+          cp -a custom/etc/rc.d/java-server \
+              "$ROOT/etc/rc.d/java-server"
+
+          mkdir -p "$ROOT/usr/local/bin"
+
+          cp -a custom/usr/local/bin/java-server \
+              "$ROOT/usr/local/bin/java-server"
+
+          mkdir -p "$ROOT/srv/server/logs"
+
+          cp -a custom/etc/freebsd-java17-release \
+              "$ROOT/etc/freebsd-java17-release"
+
+          # ------------------------------------------------------
+          # Create java user
+          # ------------------------------------------------------
+
+          if ! chroot "$ROOT" pw usershow java >/dev/null 2>&1; then
+              chroot "$ROOT" pw useradd java \
+                  -d /srv \
+                  -s /usr/sbin/nologin
+          fi
+
+          chroot "$ROOT" chown -R java:java /srv
+
+          # ------------------------------------------------------
+          # Permissions
+          # ------------------------------------------------------
+
+          chmod 755 \
+              "$ROOT/usr/local/bin/java-server"
+
+          chmod 755 \
+              "$ROOT/etc/rc.d/java-server"
+
+          chmod 750 \
+              "$ROOT/srv/server"
+
+          # ------------------------------------------------------
+          # Disable services that are not needed
+          # ------------------------------------------------------
+
+          cat >> "$ROOT/etc/rc.conf" <<'RCEOF'
+
+          # Java Server OS
+          clear_tmp_enable="YES"
+
+          RCEOF
+
+          echo "Customization finished."
+
+          EOF
+
+          chmod 755 customize.sh
+
+      # ==========================================================
+      # 7. Build FreeBSD release
+      #
+      # FreeBSD release.sh is the official release builder.
+      # ==========================================================
+
+      - name: Build FreeBSD release
+        shell: bash
+        run: |
+          set -eux
+
+          cd "$GITHUB_WORKSPACE/work/src"
+
+          export MAKE_JOBS=$(( $(nproc) ))
+
+          echo "CPU:"
+          nproc
 
           echo
-          echo "installerconfig created."
+          echo "Building FreeBSD 14.3..."
+          echo
 
-      # ============================================================
-      # 4. Inject /etc/installerconfig into the official ISO
-      # ============================================================
+          env \
+            MAKE_JOBS="$MAKE_JOBS" \
+            /bin/sh release/release.sh \
+              -c "$GITHUB_WORKSPACE/work/release.conf"
 
-      - name: Create automatic FreeBSD ISO
+      # ==========================================================
+      # 8. Find generated release files
+      # ==========================================================
+
+      - name: Find release files
         shell: bash
         run: |
           set -eux
 
-          cd work
+          cd "$GITHUB_WORKSPACE/work"
 
-          rm -f freebsd-auto.iso
+          echo "Generated files:"
+          echo
 
-          xorriso \
-            -indev freebsd.iso \
-            -outdev freebsd-auto.iso \
-            -map installerconfig /etc/installerconfig \
-            -boot_image any replay \
-            -commit \
-            -end
+          find . \
+            -type f \
+            \( \
+              -name "*.iso" \
+              -o -name "*.img" \
+              -o -name "*.txz" \
+            \) \
+            -print
 
-          test -s freebsd-auto.iso
+      # ==========================================================
+      # 9. Collect ISO / IMG
+      # ==========================================================
 
-          ls -lh \
-            freebsd.iso \
-            freebsd-auto.iso
-
-      # ============================================================
-      # 5. Create empty target disk
-      # ============================================================
-
-      - name: Create target disk
+      - name: Collect build output
         shell: bash
         run: |
           set -eux
 
-          cd work
+          mkdir -p "$GITHUB_WORKSPACE/output"
 
-          qemu-img create \
-            -f raw \
-            freebsd-java17-amd64.img \
-            8G
-
-          ls -lh freebsd-java17-amd64.img
-
-      # ============================================================
-      # 6. Prepare UEFI firmware
-      # ============================================================
-
-      - name: Prepare EFI firmware
-        shell: bash
-        run: |
-          set -eux
-
-          cd work
-
-          mkdir -p uefi
-
-          cp \
-            /usr/share/OVMF/OVMF_CODE_4M.fd \
-            uefi/OVMF_CODE.fd
-
-          cp \
-            /usr/share/OVMF/OVMF_VARS_4M.fd \
-            uefi/OVMF_VARS.fd
-
-      # ============================================================
-      # 7. Install FreeBSD automatically
-      #
-      # QEMU:
-      #
-      #   EFI
-      #    |
-      #    +-- FreeBSD installer ISO
-      #    |
-      #    +-- target disk
-      #
-      # The /etc/installerconfig file starts the unattended
-      # installation.
-      # ============================================================
-
-      - name: Install FreeBSD
-        shell: bash
-        run: |
-          set -eux
-
-          cd work
-
-          timeout 20m \
-          qemu-system-x86_64 \
-            -machine q35 \
-            -cpu max \
-            -smp 4 \
-            -m 4096 \
-            -drive if=pflash,format=raw,readonly=on,file=uefi/OVMF_CODE.fd \
-            -drive if=pflash,format=raw,file=uefi/OVMF_VARS.fd \
-            -drive file=freebsd-java17-amd64.img,format=raw,if=virtio \
-            -cdrom freebsd-auto.iso \
-            -boot d \
-            -netdev user,id=net0,hostfwd=tcp::2222-:22 \
-            -device virtio-net-pci,netdev=net0 \
-            -serial file:install.log \
-            -display none \
-            -no-reboot || true
+          find "$GITHUB_WORKSPACE/work" \
+            -type f \
+            \( \
+              -name "*.iso" \
+              -o -name "*.img" \
+            \) \
+            -exec cp {} "$GITHUB_WORKSPACE/output/" \;
 
           echo
-          echo "======================================"
-          echo " FreeBSD installer output"
-          echo "======================================"
+          echo "Output:"
+          ls -lah "$GITHUB_WORKSPACE/output"
 
-          cat install.log || true
+      # ==========================================================
+      # 10. Verify output
+      # ==========================================================
 
-          test -s freebsd-java17-amd64.img
-
-      # ============================================================
-      # 8. Boot installed FreeBSD and wait for SSH
-      # ============================================================
-
-      - name: Boot installed FreeBSD
+      - name: Verify output
         shell: bash
         run: |
           set -eux
 
-          cd work
+          cd "$GITHUB_WORKSPACE/output"
 
-          cp \
-            uefi/OVMF_VARS.fd \
-            uefi/OVMF_VARS_RUNTIME.fd
-
-          qemu-system-x86_64 \
-            -machine q35 \
-            -cpu max \
-            -smp 4 \
-            -m 4096 \
-            -drive if=pflash,format=raw,readonly=on,file=uefi/OVMF_CODE.fd \
-            -drive if=pflash,format=raw,file=uefi/OVMF_VARS_RUNTIME.fd \
-            -drive file=freebsd-java17-amd64.img,format=raw,if=virtio \
-            -netdev user,id=net0,hostfwd=tcp::2222-:22 \
-            -device virtio-net-pci,netdev=net0 \
-            -serial file:boot.log \
-            -display none \
-            -daemonize
-
-          echo "Waiting for FreeBSD SSH..."
-
-          for i in $(seq 1 120); do
-
-              if nc -z 127.0.0.1 2222 2>/dev/null; then
-                  echo "SSH port is open."
-                  break
-              fi
-
-              sleep 2
-
-          done
-
-          if ! nc -z 127.0.0.1 2222 2>/dev/null; then
-              echo "SSH did not start."
-              cat boot.log || true
+          if ! find . -type f -name "*.iso" | grep -q .; then
+              echo "ERROR: No ISO generated."
               exit 1
           fi
 
-      # ============================================================
-      # 9. Wait for OpenJDK 17 first boot installation
-      # ============================================================
+          echo
+          echo "ISO files:"
+          find . -type f -name "*.iso" -exec ls -lh {} \;
 
-      - name: Wait for OpenJDK 17
+          echo
+          echo "IMG files:"
+          find . -type f -name "*.img" -exec ls -lh {} \;
+
+      # ==========================================================
+      # 11. SHA256
+      # ==========================================================
+
+      - name: Generate SHA256
         shell: bash
         run: |
           set -eux
 
-          echo "Waiting for FreeBSD firstboot..."
+          cd "$GITHUB_WORKSPACE/output"
 
-          for i in $(seq 1 120); do
+          sha256sum * \
+            > SHA256SUMS.txt
 
-              if sshpass -p 'root-build-password' \
-                  ssh \
-                  -o StrictHostKeyChecking=no \
-                  -o UserKnownHostsFile=/dev/null \
-                  -o ConnectTimeout=5 \
-                  root@127.0.0.1 \
-                  'test -x /usr/local/bin/java && /usr/local/bin/java -version' \
-                  2>&1; then
+          cat SHA256SUMS.txt
 
-                  echo
-                  echo "OpenJDK 17 is installed."
-                  break
+      # ==========================================================
+      # 12. Upload final artifacts
+      # ==========================================================
 
-              fi
-
-              sleep 5
-
-          done
-
-          sshpass -p 'root-build-password' \
-            ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            root@127.0.0.1 \
-            '/usr/local/bin/java -version'
-
-      # ============================================================
-      # 10. Verify system
-      # ============================================================
-
-      - name: Verify FreeBSD Java17 system
-        shell: bash
-        run: |
-          set -eux
-
-          sshpass -p 'root-build-password' \
-            ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            root@127.0.0.1 \
-            '
-              echo "===== FreeBSD ====="
-              uname -a
-
-              echo
-              echo "===== Java ====="
-              /usr/local/bin/java -version
-
-              echo
-              echo "===== Java launcher ====="
-              ls -l /usr/local/bin/java-server
-
-              echo
-              echo "===== Server directory ====="
-              ls -ld /srv/server
-
-              echo
-              echo "===== EFI ====="
-              gpart show
-
-              echo
-              echo "===== rc.conf ====="
-              grep -E "sshd_enable|java_server_enable|ifconfig_DEFAULT" /etc/rc.conf
-            '
-
-      # ============================================================
-      # 11. Shutdown VM cleanly
-      # ============================================================
-
-      - name: Shutdown FreeBSD
-        shell: bash
-        run: |
-          set -eux
-
-          sshpass -p 'root-build-password' \
-            ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            root@127.0.0.1 \
-            'shutdown -p now' || true
-
-          sleep 10
-
-      # ============================================================
-      # 12. Compress final image
-      # ============================================================
-
-      - name: Compress image
-        shell: bash
-        run: |
-          set -eux
-
-          cd work
-
-          xz -T0 -9 \
-            -c freebsd-java17-amd64.img \
-            > freebsd-java17-amd64.img.xz
-
-          ls -lh \
-            freebsd-java17-amd64.img \
-            freebsd-java17-amd64.img.xz
-
-      # ============================================================
-      # 13. Upload final image
-      # ============================================================
-
-      - name: Upload FreeBSD Java17 image
+      - name: Upload FreeBSD Java17 build
         uses: actions/upload-artifact@v4
         with:
-          name: FreeBSD-Java17-amd64
+          name: FreeBSD-14.3-Java17-amd64
           compression-level: 0
           path: |
-            work/freebsd-java17-amd64.img
-            work/freebsd-java17-amd64.img.xz
-            work/freebsd-auto.iso
-            work/install.log
-            work/boot.log
+            output/*
