@@ -1,0 +1,34 @@
+name: Send 126 Mail
+
+on:
+  workflow_dispatch:
+
+jobs:
+  send-mail:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send email
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.126.com
+          server_port: 465
+          secure: true
+
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+
+          from: ${{ secrets.MAIL_USERNAME }}
+          to: "你的收件邮箱@example.com"
+
+          subject: "GitHub Actions 测试邮件"
+
+          body: |
+            你好！
+
+            这是一封由 GitHub Actions
+            通过 126 邮箱 SMTP 自动发送的邮件。
+
+            你可以直接修改这里的内容。
+
+            Hello from GitHub Actions!
