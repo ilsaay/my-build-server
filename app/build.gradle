@@ -9,10 +9,17 @@ android {
 
     defaultConfig {
         applicationId "com.sendemail"
-        minSdk 21          // Android 5.0，实际下限
+        minSdk 21
         targetSdk 34
         versionCode 1
-        versionName "1.0"
+        versionName "0.1-beta"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug   // 0.1 beta 先用 debug 签名
+        }
     }
 
     compileOptions {
@@ -24,4 +31,5 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core-ktx:1.12.0'
 }
