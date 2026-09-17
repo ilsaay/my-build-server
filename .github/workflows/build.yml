@@ -26,11 +26,9 @@ jobs:
             set -e
             set -x
 
-            # ---------- 1. 拉取 FreeBSD 源码 ----------
             git clone --depth 1 https://github.com/freebsd/freebsd-src.git /tmp/src
             cd /tmp/src
 
-            # ---------- 2. 写定制内核配置（EOF 必须顶格！） ----------
             cat > sys/amd64/conf/JAVAONLY << 'EOF'
 cpu             HAMMER
 ident           JAVAONLY
@@ -51,26 +49,16 @@ nodevice        kdb
 nodevice        ddb
 EOF
 
-            # ---------- 3. 确认配置写入成功 ----------
             ls -l sys/amd64/conf/JAVAONLY
-            head -5 sys/amd64/conf/JAVAONLY
-
-            # ---------- 4. 编译内核 ----------
             NCPU=$(sysctl -n hw.ncpu)
-            echo "CPU count: ${NCPU}"
             make buildkernel KERNCONF=JAVAONLY -j${NCPU}
-
-            # ---------- 5. 编译 world ----------
             make buildworld -j${NCPU}
 
-            # ---------- 6. 安装到 rootfs ----------
             mkdir -p /tmp/rootfs
             make installworld DESTDIR=/tmp/rootfs
             make installkernel DESTDIR=/tmp/rootfs KERNCONF=JAVAONLY
 
-            # ---------- 7. 精简 rootfs ----------
             R=/tmp/rootfs
-
             rm -f $R/bin/sh $R/bin/csh $R/bin/tcsh $R/bin/ksh
             rm -f $R/usr/bin/cc $R/usr/bin/c++ $R/usr/bin/gcc $R/usr/bin/clang
             rm -rf $R/usr/lib/clang
@@ -80,28 +68,21 @@ EOF
             rm -f $R/usr/bin/vi $R/usr/bin/ee $R/usr/bin/nano
             rm -f $R/usr/bin/make $R/usr/bin/yacc $R/usr/bin/lex $R/usr/bin/bmake
             rm -rf $R/usr/share/doc $R/usr/share/man $R/usr/games
-            rm -f $R/usr/bin/gdb $R/usr/bin/truss $R/usr/bin/ktrace
-            rm -f $R/usr/bin/telnet $R/usr/bin/ftp $R/usr/bin/rlogin
-            rm -rf $R/usr/sbin/sendmail $R/usr/bin/mail $R/usr/sbin/lpr
 
-            # ---------- 8. 安装 JRE ----------
             pkg install -y openjdk17-jre || true
             mkdir -p $R/opt
             if [ -d /usr/local/openjdk17 ]; then
               cp -a /usr/local/openjdk17 $R/opt/jre
             else
               mkdir -p $R/opt/jre
-              echo "JRE not installed" > $R/opt/jre/README
             fi
 
-            # ---------- 9. 写 overlay 配置 ----------
             mkdir -p $R/usr/local/etc/rc.d
 
             cat > $R/etc/rc.conf << 'EOF'
 hostname="javaonly"
 ifconfig_em0="DHCP"
 sshd_enable="NO"
-inetd_enable="NO"
 javaweb_enable="YES"
 EOF
 
@@ -123,15 +104,9 @@ run_rc_command "$1"
 EOF
             chmod +x $R/usr/local/etc/rc.d/javaweb
 
-            cat > $R/etc/exec_whitelist << 'EOF'
-/opt/jre/bin/java
-EOF
-
-            # ---------- 10. app 占位 ----------
             mkdir -p $R/opt/app
-            echo "Put your app.jar here as /opt/app/app.jar" > $R/opt/app/README
+            echo "Put your app.jar here" > $R/opt/app/README
 
-            # ---------- 11. 打包 ----------
             cd /tmp/rootfs
             tar -czf /tmp/freebsd-javaonly.tar.gz .
 
