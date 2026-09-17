@@ -1,4 +1,4 @@
-name: Build APK
+name: Build send.email APK
 
 on:
   push:
@@ -29,14 +29,134 @@ jobs:
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
+      - name: Scaffold Android project
+        working-directory: app/send.email
+        run: |
+          set -e
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.0' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.20' apply false
+          }
+          EOF
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "send.email"
+          include ':app'
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          kotlin.code.style=official
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          mkdir -p app/src/main/java/com/sendemail
+          mkdir -p app/src/main/res/values
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.sendemail'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.sendemail"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "0.1-beta"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = '17' }
+          }
+
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.core:core-ktx:1.12.0'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.sendemail">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:label="send.email"
+                  android:usesCleartextTraffic="false"
+                  android:theme="@style/Theme.SendEmail">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">send.email</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.SendEmail" parent="Theme.AppCompat.DayNight.DarkActionBar" />
+          </resources>
+          EOF
+
+      - name: Copy Kotlin sources
+        run: |
+          # 把仓库里 app/send.email/ 根下的 .kt 文件搬到标准位置
+          mkdir -p app/send.email/app/src/main/java/com/sendemail
+          find app/send.email -maxdepth 1 -name '*.kt' -exec cp {} app/send.email/app/src/main/java/com/sendemail/ \;
+          ls -la app/send.email/app/src/main/java/com/sendemail/
+
+      - name: Generate gradle wrapper
+        working-directory: app/send.email
+        run: gradle wrapper --gradle-version 8.2
+
       - name: Grant execute permission for gradlew
+        working-directory: app/send.email
         run: chmod +x gradlew
 
       - name: Build debug APK
+        working-directory: app/send.email
         run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: send-email-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/send.email/app/build/outputs/apk/debug/*.apk
