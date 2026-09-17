@@ -1,4 +1,4 @@
-name: Build FreeBSD Java17 Server
+name: Build FreeBSD 14.3 Server
 
 on:
   workflow_dispatch:
@@ -6,553 +6,263 @@ on:
 permissions:
   contents: read
 
-env:
-  FREEBSD_VERSION: "14.3"
-  TARGET: "amd64"
-  TARGET_ARCH: "amd64"
-
 jobs:
-  build:
-    name: FreeBSD 14.3 Java17 amd64
-    runs-on: ubuntu-24.04
+  build-freebsd:
+    name: Build FreeBSD 14.3 amd64 Server
+    runs-on: ubuntu-22.04
 
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # ==========================================================
-      # 1. Install build dependencies
-      # ==========================================================
-
-      - name: Install build dependencies
-        shell: bash
-        run: |
-          set -eux
-
-          sudo apt-get update
-
-          sudo apt-get install -y \
-            git \
-            subversion \
-            ca-certificates \
-            curl \
-            wget \
-            xz-utils \
-            bzip2 \
-            gzip \
-            tar \
-            unzip \
-            rsync \
-            qemu-utils \
-            qemu-system-x86 \
-            ovmf \
-            xorriso \
-            pkg-config \
-            libarchive-tools
-
-      # ==========================================================
-      # 2. Prepare workspace
-      # ==========================================================
-
-      - name: Prepare workspace
-        shell: bash
-        run: |
-          set -eux
-
-          mkdir -p \
-            "$GITHUB_WORKSPACE/work" \
-            "$GITHUB_WORKSPACE/output"
-
-          df -h
-
-      # ==========================================================
-      # 3. Download FreeBSD 14.3 source
+      # ------------------------------------------------------------
+      # Run the actual FreeBSD build inside a real FreeBSD VM.
       #
-      # We use the official FreeBSD src tree.
-      # ==========================================================
+      # IMPORTANT:
+      # release.sh is NOT executed by Ubuntu.
+      # It is executed inside FreeBSD 14.3.
+      # ------------------------------------------------------------
+      - name: Build inside FreeBSD 14.3
+        id: freebsd
+        uses: vmactions/freebsd-vm@v1.2.4
+        with:
+          release: "14.3"
+          arch: "amd64"
+          mem: 8192
+          cpu: 4
+          usesh: true
+          copyback: true
+
+          prepare: |
+            set -eux
+
+            echo "========================================"
+            echo " FreeBSD build environment"
+            echo "========================================"
+
+            freebsd-version
+            uname -a
+            sysctl -n hw.ncpu
+            df -h
+
+            echo
+            echo "Installing build dependencies..."
+
+            pkg update -f
 
-      - name: Download FreeBSD source
-        shell: bash
-        run: |
-          set -eux
+            pkg install -y \
+              git \
+              ca_root_nss \
+              curl \
+              wget \
+              rsync \
+              xz \
+              sudo \
+              bash \
+              gmake
+
+          run: |
+            set -eux
+
+            echo "========================================"
+            echo " FreeBSD 14.3 release build"
+            echo "========================================"
 
-          cd "$GITHUB_WORKSPACE/work"
+            freebsd-version
+            uname -m
+            sysctl -n hw.ncpu
+
+            export MAKE_JOBS=4
 
-          git clone \
-            --depth 1 \
-            --branch releng/14.3 \
-            https://git.FreeBSD.org/src.git \
-            src
+            echo
+            echo "CPU:"
+            sysctl -n hw.ncpu
 
-          cd src
+            echo
+            echo "Disk:"
+            df -h
 
-          git rev-parse HEAD
+            mkdir -p "$GITHUB_WORKSPACE/work"
+            cd "$GITHUB_WORKSPACE/work"
 
-      # ==========================================================
-      # 4. Create FreeBSD release.conf
-      # ==========================================================
+            rm -rf src
 
-      - name: Create release configuration
-        shell: bash
-        run: |
-          set -eux
+            echo
+            echo "========================================"
+            echo " Download FreeBSD 14.3 source"
+            echo "========================================"
 
-          cd "$GITHUB_WORKSPACE/work"
+            git clone \
+              --depth 1 \
+              --branch releng/14.3 \
+              https://git.freebsd.org/src.git \
+              src
 
-          cat > release.conf <<'EOF'
-          # ======================================================
-          # FreeBSD 14.3 Java17 Server
-          # ======================================================
+            cd src
 
-          TARGET="amd64"
-          TARGET_ARCH="amd64"
+            echo
+            echo "FreeBSD source:"
+            git describe --always --dirty || true
 
-          KERNEL="GENERIC"
+            echo
+            echo "========================================"
+            echo " Create release.conf"
+            echo "========================================"
 
-          # ------------------------------------------------------
-          # Release directory
-          # ------------------------------------------------------
+            cat > "$GITHUB_WORKSPACE/work/release.conf" <<'EOF'
+            #!/bin/sh
 
-          CHROOTDIR="/scratch"
+            # --------------------------------------------------------
+            # FreeBSD release configuration
+            # --------------------------------------------------------
 
-          # ------------------------------------------------------
-          # Source tree
-          # ------------------------------------------------------
+            CHROOTDIR="/scratch"
 
-          SRCBRANCH="releng/14.3"
+            TARGET="amd64"
+            TARGET_ARCH="amd64"
 
-          # ------------------------------------------------------
-          # Build options
-          # ------------------------------------------------------
+            KERNEL="GENERIC"
 
-          WITHOUT_DEBUG_FILES="yes"
+            # We already cloned the source tree.
+            # Prevent release.sh from downloading another source tree.
+            NOGIT=1
 
-          WITHOUT_KERNEL_SYMBOLS="yes"
+            # Do not build the ports tree into the release.
+            NOPORTS=1
 
-          WITHOUT_MAN="no"
+            # Do not include FreeBSD source in the release media.
+            NOSRC=1
 
-          WITHOUT_PROFILE="yes"
+            # Do not generate release documentation.
+            NODOC=1
 
-          # ------------------------------------------------------
-          # Packages
-          #
-          # OpenJDK 17 will be installed into the release.
-          # ------------------------------------------------------
+            # Build installation media.
+            WITH_DVD=""
 
-          EXTRA_PACKAGES="
-          openjdk17
-          "
+            # Build VM images.
+            WITH_VMIMAGES=1
 
-          # ------------------------------------------------------
-          # EFI boot
-          # ------------------------------------------------------
+            # VM formats.
+            VMFORMATS="raw qcow2"
 
-          WITH_EFI="yes"
+            # 20 GB virtual disk.
+            VMSIZE="20G"
 
-          # Do not build/install legacy BIOS boot code.
-          WITHOUT_BIOS="yes"
+            # Use four build jobs.
+            WORLD_FLAGS="-j4"
+            KERNEL_FLAGS="-j4"
+            EOF
 
-          # ------------------------------------------------------
-          # Filesystem
-          # ------------------------------------------------------
+            echo
+            echo "release.conf:"
+            cat "$GITHUB_WORKSPACE/work/release.conf"
 
-          WITH_ZFS="no"
+            echo
+            echo "========================================"
+            echo " Check release.sh syntax"
+            echo "========================================"
 
-          # ------------------------------------------------------
-          # Compression
-          # ------------------------------------------------------
+            /bin/sh -n release/release.sh
 
-          XZ_THREADS="0"
+            echo
+            echo "release.sh syntax OK"
 
-          XZ_COMPRESS_FLAGS="-9"
+            echo
+            echo "========================================"
+            echo " Build FreeBSD release"
+            echo "========================================"
 
-          EOF
+            export MAKE_JOBS=4
 
-          cat release.conf
-
-      # ==========================================================
-      # 5. Create custom files
-      # ==========================================================
-
-      - name: Create custom FreeBSD files
-        shell: bash
-        run: |
-          set -eux
-
-          cd "$GITHUB_WORKSPACE/work"
-
-          mkdir -p custom/etc
-          mkdir -p custom/etc/rc.d
-          mkdir -p custom/usr/local/bin
-          mkdir -p custom/srv/server
-
-          # ------------------------------------------------------
-          # rc.conf
-          # ------------------------------------------------------
-
-          cat > custom/etc/rc.conf <<'EOF'
-          hostname="java-server"
-
-          sshd_enable="YES"
-
-          java_server_enable="YES"
-
-          dumpdev="NO"
-
-          sendmail_enable="NONE"
-
-          moused_nondefault_enable="NO"
-          EOF
-
-          # ------------------------------------------------------
-          # Java server launcher
-          # ------------------------------------------------------
-
-          cat > custom/usr/local/bin/java-server <<'EOF'
-          #!/bin/sh
-
-          set -eu
-
-          JAVA="/usr/local/bin/java"
-
-          SERVER="/srv/server/server.jar"
-
-          if [ ! -x "$JAVA" ]; then
-              echo "OpenJDK 17 was not found."
-              exit 1
-          fi
-
-          if [ ! -f "$SERVER" ]; then
-              echo
-              echo "=========================================="
-              echo " FreeBSD Java Server"
-              echo "=========================================="
-              echo
-              echo "server.jar not found."
-              echo
-              echo "Place your Java application here:"
-              echo
-              echo "  /srv/server/server.jar"
-              echo
-              exit 1
-          fi
-
-          cd /srv/server
-
-          exec "$JAVA" \
-              -Xms1G \
-              -Xmx4G \
-              -XX:+UseG1GC \
-              -jar "$SERVER" \
-              nogui
-          EOF
-
-          chmod 755 custom/usr/local/bin/java-server
-
-          # ------------------------------------------------------
-          # Java server rc.d service
-          # ------------------------------------------------------
-
-          cat > custom/etc/rc.d/java-server <<'EOF'
-          #!/bin/sh
-
-          # PROVIDE: java_server
-          # REQUIRE: NETWORKING
-          # KEYWORD: shutdown
-
-          . /etc/rc.subr
-
-          name="java_server"
-          rcvar="java_server_enable"
-
-          command="/usr/local/bin/java-server"
-
-          start_cmd="java_server_start"
-
-          stop_cmd="java_server_stop"
-
-          java_server_start()
-          {
-              if [ ! -f /srv/server/server.jar ]; then
-                  echo "java-server: server.jar not found."
-                  return 0
-              fi
-
-              if [ ! -d /srv/server/logs ]; then
-                  mkdir -p /srv/server/logs
-              fi
-
-              cd /srv/server
-
-              /usr/sbin/daemon \
-                  -p /var/run/java-server.pid \
-                  -o /srv/server/logs/server.log \
-                  /usr/local/bin/java-server
-          }
-
-          java_server_stop()
-          {
-              if [ -f /var/run/java-server.pid ]; then
-                  kill "$(cat /var/run/java-server.pid)" 2>/dev/null || true
-                  rm -f /var/run/java-server.pid
-              fi
-          }
-
-          load_rc_config "$name"
-
-          : ${java_server_enable:="YES"}
-
-          run_rc_command "$1"
-          EOF
-
-          chmod 755 custom/etc/rc.d/java-server
-
-          # ------------------------------------------------------
-          # System information
-          # ------------------------------------------------------
-
-          cat > custom/etc/freebsd-java17-release <<'EOF'
-          FreeBSD Java17 Server
-
-          FreeBSD:
-          14.3-RELEASE
-
-          Architecture:
-          amd64
-
-          Boot:
-          EFI / UEFI
-
-          Java:
-          OpenJDK 17
-
-          Server:
-          /srv/server/server.jar
-
-          Launcher:
-          /usr/local/bin/java-server
-
-          Service:
-          java_server
-
-          EOF
-
-          # ------------------------------------------------------
-          # Server directory
-          # ------------------------------------------------------
-
-          mkdir -p custom/srv/server/logs
-
-          echo "Custom files created."
-
-          find custom -type f -print
-
-      # ==========================================================
-      # 6. Create customization script
-      # ==========================================================
-
-      - name: Create customization script
-        shell: bash
-        run: |
-          set -eux
-
-          cd "$GITHUB_WORKSPACE/work"
-
-          cat > customize.sh <<'EOF'
-          #!/bin/sh
-
-          set -eux
-
-          ROOT="$1"
-
-          echo "Customizing FreeBSD release:"
-          echo "$ROOT"
-
-          # ------------------------------------------------------
-          # Copy custom configuration
-          # ------------------------------------------------------
-
-          cp -a custom/etc/rc.conf \
-              "$ROOT/etc/rc.conf"
-
-          mkdir -p "$ROOT/etc/rc.d"
-
-          cp -a custom/etc/rc.d/java-server \
-              "$ROOT/etc/rc.d/java-server"
-
-          mkdir -p "$ROOT/usr/local/bin"
-
-          cp -a custom/usr/local/bin/java-server \
-              "$ROOT/usr/local/bin/java-server"
-
-          mkdir -p "$ROOT/srv/server/logs"
-
-          cp -a custom/etc/freebsd-java17-release \
-              "$ROOT/etc/freebsd-java17-release"
-
-          # ------------------------------------------------------
-          # Create java user
-          # ------------------------------------------------------
-
-          if ! chroot "$ROOT" pw usershow java >/dev/null 2>&1; then
-              chroot "$ROOT" pw useradd java \
-                  -d /srv \
-                  -s /usr/sbin/nologin
-          fi
-
-          chroot "$ROOT" chown -R java:java /srv
-
-          # ------------------------------------------------------
-          # Permissions
-          # ------------------------------------------------------
-
-          chmod 755 \
-              "$ROOT/usr/local/bin/java-server"
-
-          chmod 755 \
-              "$ROOT/etc/rc.d/java-server"
-
-          chmod 750 \
-              "$ROOT/srv/server"
-
-          # ------------------------------------------------------
-          # Disable services that are not needed
-          # ------------------------------------------------------
-
-          cat >> "$ROOT/etc/rc.conf" <<'RCEOF'
-
-          # Java Server OS
-          clear_tmp_enable="YES"
-
-          RCEOF
-
-          echo "Customization finished."
-
-          EOF
-
-          chmod 755 customize.sh
-
-      # ==========================================================
-      # 7. Build FreeBSD release
-      #
-      # FreeBSD release.sh is the official release builder.
-      # ==========================================================
-
-      - name: Build FreeBSD release
-        shell: bash
-        run: |
-          set -eux
-
-          cd "$GITHUB_WORKSPACE/work/src"
-
-          export MAKE_JOBS=$(( $(nproc) ))
-
-          echo "CPU:"
-          nproc
-
-          echo
-          echo "Building FreeBSD 14.3..."
-          echo
-
-          env \
-            MAKE_JOBS="$MAKE_JOBS" \
             /bin/sh release/release.sh \
               -c "$GITHUB_WORKSPACE/work/release.conf"
 
-      # ==========================================================
-      # 8. Find generated release files
-      # ==========================================================
+            echo
+            echo "========================================"
+            echo " Release build finished"
+            echo "========================================"
 
-      - name: Find release files
+            echo
+            echo "Release files:"
+            find "$GITHUB_WORKSPACE/work" \
+              -type f \
+              \( \
+                -name "*.iso" \
+                -o -name "*.img" \
+                -o -name "*.qcow2" \
+                -o -name "*.txz" \
+                -o -name "MANIFEST" \
+              \) \
+              -print
+
+            echo
+            echo "========================================"
+            echo " Create artifact directory"
+            echo "========================================"
+
+            mkdir -p "$GITHUB_WORKSPACE/work/artifacts"
+
+            find "$GITHUB_WORKSPACE/work/src" \
+              -maxdepth 3 \
+              -type f \
+              \( \
+                -name "*.iso" \
+                -o -name "*.img" \
+                -o -name "*.qcow2" \
+              \) \
+              -exec cp -v {} "$GITHUB_WORKSPACE/work/artifacts/" \; \
+              || true
+
+            echo
+            echo "Artifacts:"
+            ls -lah "$GITHUB_WORKSPACE/work/artifacts" || true
+
+      # ------------------------------------------------------------
+      # Upload everything generated by the FreeBSD build.
+      # ------------------------------------------------------------
+      - name: Find build output
         shell: bash
         run: |
           set -eux
 
-          cd "$GITHUB_WORKSPACE/work"
+          echo "========================================"
+          echo " Searching build output"
+          echo "========================================"
 
-          echo "Generated files:"
-          echo
-
-          find . \
-            -type f \
+          find . -type f \
             \( \
               -name "*.iso" \
               -o -name "*.img" \
-              -o -name "*.txz" \
+              -o -name "*.qcow2" \
             \) \
-            -print
+            -print \
+            | sort
 
-      # ==========================================================
-      # 9. Collect ISO / IMG
-      # ==========================================================
-
-      - name: Collect build output
-        shell: bash
-        run: |
-          set -eux
-
-          mkdir -p "$GITHUB_WORKSPACE/output"
-
-          find "$GITHUB_WORKSPACE/work" \
-            -type f \
-            \( \
-              -name "*.iso" \
-              -o -name "*.img" \
-            \) \
-            -exec cp {} "$GITHUB_WORKSPACE/output/" \;
-
-          echo
-          echo "Output:"
-          ls -lah "$GITHUB_WORKSPACE/output"
-
-      # ==========================================================
-      # 10. Verify output
-      # ==========================================================
-
-      - name: Verify output
-        shell: bash
-        run: |
-          set -eux
-
-          cd "$GITHUB_WORKSPACE/output"
-
-          if ! find . -type f -name "*.iso" | grep -q .; then
-              echo "ERROR: No ISO generated."
-              exit 1
-          fi
-
-          echo
-          echo "ISO files:"
-          find . -type f -name "*.iso" -exec ls -lh {} \;
-
-          echo
-          echo "IMG files:"
-          find . -type f -name "*.img" -exec ls -lh {} \;
-
-      # ==========================================================
-      # 11. SHA256
-      # ==========================================================
-
-      - name: Generate SHA256
-        shell: bash
-        run: |
-          set -eux
-
-          cd "$GITHUB_WORKSPACE/output"
-
-          sha256sum * \
-            > SHA256SUMS.txt
-
-          cat SHA256SUMS.txt
-
-      # ==========================================================
-      # 12. Upload final artifacts
-      # ==========================================================
-
-      - name: Upload FreeBSD Java17 build
+      - name: Upload FreeBSD ISO
         uses: actions/upload-artifact@v4
         with:
-          name: FreeBSD-14.3-Java17-amd64
-          compression-level: 0
+          name: FreeBSD-14.3-amd64-ISO
           path: |
-            output/*
+            **/*.iso
+          if-no-files-found: warn
+          compression-level: 0
+
+      - name: Upload FreeBSD IMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeBSD-14.3-amd64-IMG
+          path: |
+            **/*.img
+          if-no-files-found: warn
+          compression-level: 0
+
+      - name: Upload FreeBSD QCOW2
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeBSD-14.3-amd64-QCOW2
+          path: |
+            **/*.qcow2
+          if-no-files-found: warn
+          compression-level: 0
