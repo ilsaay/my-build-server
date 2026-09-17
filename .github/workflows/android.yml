@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   scaffold:
     runs-on: ubuntu-latest
@@ -12,13 +15,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create standard Android project structure
         working-directory: app/sendemail
         run: |
           set -e
 
-          # 项目级 build.gradle
           cat > build.gradle <<'EOF'
           plugins {
               id 'com.android.application' version '8.2.0' apply false
@@ -26,7 +30,6 @@ jobs:
           }
           EOF
 
-          # settings.gradle
           cat > settings.gradle <<'EOF'
           pluginManagement {
               repositories {
@@ -45,19 +48,16 @@ jobs:
           include ':app'
           EOF
 
-          # gradle.properties
           cat > gradle.properties <<'EOF'
           android.useAndroidX=true
           kotlin.code.style=official
           org.gradle.jvmargs=-Xmx2048m
           EOF
 
-          # 标准目录
           mkdir -p app/src/main/java/com/sendemail
           mkdir -p app/src/main/res/values
           mkdir -p gradle/wrapper
 
-          # app/build.gradle
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -89,7 +89,6 @@ jobs:
           }
           EOF
 
-          # AndroidManifest.xml
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -113,7 +112,6 @@ jobs:
           </manifest>
           EOF
 
-          # strings.xml
           cat > app/src/main/res/values/strings.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -121,7 +119,6 @@ jobs:
           </resources>
           EOF
 
-          # themes.xml
           cat > app/src/main/res/values/themes.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -129,7 +126,6 @@ jobs:
           </resources>
           EOF
 
-          # gradle-wrapper.properties（只创建配置，不下载 jar）
           cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
           distributionBase=GRADLE_USER_HOME
           distributionPath=wrapper/dists
@@ -146,5 +142,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add app/sendemail
-          git diff --staged --quiet || git commit -m "chore: scaffold send.email Android project structure"
+          git diff --staged --quiet && echo "无变化，跳过提交" && exit 0
+          git commit -m "chore: scaffold send.email Android project structure"
           git push
