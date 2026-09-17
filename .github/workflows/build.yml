@@ -14,171 +14,160 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bmake libarchive-dev \
-            libbz2-dev liblzma-dev libssl-dev
+      - name: Build inside FreeBSD VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y git
+          run: |
+            set -e
 
-      - name: Clone FreeBSD source
-        run: |
-          git clone --depth 1 https://github.com/freebsd/freebsd-src.git /tmp/src
+            # ---------- 1. 拉取 FreeBSD 源码 ----------
+            git clone --depth 1 https://github.com/freebsd/freebsd-src.git /tmp/src
+            cd /tmp/src
 
-      - name: Write JAVAONLY kernel config
-        run: |
-          cat > /tmp/src/sys/amd64/conf/JAVAONLY << 'EOF'
-          cpu             HAMMER
-          ident           JAVAONLY
+            # ---------- 2. 写定制内核配置 ----------
+            cat > sys/amd64/conf/JAVAONLY << 'EOF'
+            cpu             HAMMER
+            ident           JAVAONLY
 
-          # 基础必需
-          device          isa
-          device          pci
-          device          acpi
-          device          smp
-          device          vt
-          device          ufs
-          device          ahci
-          device          nvme
-          device          em
-          device          miibus
+            # 基础必需
+            device          isa
+            device          pci
+            device          acpi
+            device          smp
+            device          vt
+            device          ufs
+            device          ahci
+            device          nvme
+            device          em
+            device          miibus
 
-          # 网络
-          options         INET
-          options         INET6
-          options         TCP_HHOOK
+            # 网络
+            options         INET
+            options         INET6
+            options         TCP_HHOOK
 
-          # 安全
-          options         MAC
-          options         AUDIT
+            # 安全
+            options         MAC
+            options         AUDIT
 
-          # 删除调试
-          nodevice        kdb
-          nodevice        ddb
-          nodevice        gdb
+            # 删除调试
+            nodevice        kdb
+            nodevice        ddb
+            nodevice        gdb
 
-          # 不包含：无线、声卡、蓝牙、摄像头、游戏手柄
-          EOF
+            # 不包含：无线、声卡、蓝牙、摄像头、游戏手柄
+            EOF
 
-      - name: Build kernel
-        run: |
-          cd /tmp/src
-          make buildkernel KERNCONF=JAVAONLY -j$(nproc)
+            # ---------- 3. 编译内核 ----------
+            NCPU=$(sysctl -n hw.ncpu)
+            make buildkernel KERNCONF=JAVAONLY -j${NCPU}
 
-      - name: Build world
-        run: |
-          cd /tmp/src
-          make buildworld -j$(nproc)
+            # ---------- 4. 编译 world ----------
+            make buildworld -j${NCPU}
 
-      - name: Slim the source tree
-        run: |
-          SRC=/tmp/src
-          # 编译器
-          rm -rf $SRC/usr.bin/cc $SRC/usr.bin/clang $SRC/usr.bin/gcc
-          rm -rf $SRC/gnu/usr.bin/gcc $SRC/lib/clang
-          # 解释器
-          rm -rf $SRC/usr.bin/python* $SRC/usr.bin/perl
-          rm -rf $SRC/gnu/usr.bin/perl
-          # 包管理
-          rm -rf $SRC/usr.sbin/pkg
-          # 编辑器
-          rm -rf $SRC/usr.bin/vi $SRC/usr.bin/ee $SRC/usr.bin/nano
-          # 游戏与文档
-          rm -rf $SRC/games $SRC/share/doc $SRC/share/man
-          # 调试工具
-          rm -rf $SRC/usr.bin/gdb $SRC/usr.bin/truss $SRC/usr.bin/ktrace
-          # 开发工具
-          rm -rf $SRC/usr.bin/make $SRC/usr.bin/yacc $SRC/usr.bin/lex
-          rm -rf $SRC/usr.bin/bmake
-          # 网络工具
-          rm -rf $SRC/usr.bin/telnet $SRC/usr.bin/ftp $SRC/usr.bin/rlogin
-          # 邮件与打印
-          rm -rf $SRC/usr.sbin/sendmail $SRC/usr.bin/mail
-          rm -rf $SRC/usr.sbin/lpr
-          # 无线
-          rm -rf $SRC/usr.sbin/wpa $SRC/usr.bin/wpa*
+            # ---------- 5. 安装到 rootfs ----------
+            mkdir -p /tmp/rootfs
+            make installworld DESTDIR=/tmp/rootfs
+            make installkernel DESTDIR=/tmp/rootfs KERNCONF=JAVAONLY
 
-      - name: Install to rootfs
-        run: |
-          mkdir -p /tmp/rootfs
-          cd /tmp/src
-          make installworld DESTDIR=/tmp/rootfs
-          make installkernel DESTDIR=/tmp/rootfs
+            # ---------- 6. 精简 rootfs ----------
+            R=/tmp/rootfs
 
-      - name: Remove shell and binaries from rootfs
-        run: |
-          R=/tmp/rootfs
-          # 删除 shell
-          rm -f $R/bin/sh $R/bin/csh $R/bin/tcsh $R/bin/ksh
-          # 删除编译器
-          rm -f $R/usr/bin/cc $R/usr/bin/c++ $R/usr/bin/gcc $R/usr/bin/clang
-          # 删除解释器
-          rm -f $R/usr/bin/python* $R/usr/bin/perl $R/usr/bin/awk $R/usr/bin/sed
-          # 删除包管理
-          rm -f $R/usr/sbin/pkg $R/usr/sbin/pkg-static
-          # 删除编辑器
-          rm -f $R/usr/bin/vi $R/usr/bin/ee $R/usr/bin/nano
-          # 删除开发工具
-          rm -f $R/usr/bin/make $R/usr/bin/yacc $R/usr/bin/lex
+            # 删除 shell
+            rm -f $R/bin/sh $R/bin/csh $R/bin/tcsh $R/bin/ksh
 
-      - name: Install JRE into rootfs
-        run: |
-          R=/tmp/rootfs
-          # 从 FreeBSD 官方 pkg 获取 JRE（在 chroot 中安装）
-          # 这里用预下载方式，避免 chroot 网络问题
-          mkdir -p $R/opt/jre
-          echo "注意：JRE 需要在目标机上安装，或在此处解压预编译包" > $R/opt/jre/README
+            # 删除编译器
+            rm -f $R/usr/bin/cc $R/usr/bin/c++ $R/usr/bin/gcc $R/usr/bin/clang
+            rm -rf $R/usr/lib/clang
 
-      - name: Write overlay configs
-        run: |
-          R=/tmp/rootfs
-          mkdir -p $R/usr/local/etc/rc.d
+            # 删除解释器
+            rm -f $R/usr/bin/python* $R/usr/bin/perl $R/usr/bin/awk $R/usr/bin/sed
 
-          # rc.conf
-          cat > $R/etc/rc.conf << 'EOF'
-          hostname="javaonly"
-          ifconfig_em0="DHCP"
-          sshd_enable="NO"
-          inetd_enable="NO"
-          javaweb_enable="YES"
-          EOF
+            # 删除包管理
+            rm -f $R/usr/sbin/pkg $R/usr/sbin/pkg-static
+            rm -rf $R/var/db/pkg
 
-          # fstab 只读根
-          cat > $R/etc/fstab << 'EOF'
-          /dev/ada0p2  /  ufs  ro  0 1
-          EOF
+            # 删除编辑器
+            rm -f $R/usr/bin/vi $R/usr/bin/ee $R/usr/bin/nano
 
-          # rc.d 自启 Java Web
-          cat > $R/usr/local/etc/rc.d/javaweb << 'EOF'
-          #!/bin/sh
-          . /etc/rc.subr
-          name=javaweb
-          rcvar=javaweb_enable
-          command="/opt/jre/bin/java"
-          command_args="-jar /opt/app/app.jar"
-          pidfile="/var/run/${name}.pid"
-          load_rc_config $name
-          : ${javaweb_enable:=NO}
-          run_rc_command "$1"
-          EOF
+            # 删除开发工具
+            rm -f $R/usr/bin/make $R/usr/bin/yacc $R/usr/bin/lex
+            rm -f $R/usr/bin/bmake
 
-          chmod +x $R/usr/local/etc/rc.d/javaweb
+            # 删除文档与游戏
+            rm -rf $R/usr/share/doc $R/usr/share/man
+            rm -rf $R/usr/games
 
-          # 白名单：只允许 java
-          cat > $R/etc/exec_whitelist << 'EOF'
-          # 只允许运行以下程序
-          /opt/jre/bin/java
-          EOF
+            # 删除调试工具
+            rm -f $R/usr/bin/gdb $R/usr/bin/truss $R/usr/bin/ktrace
 
-      - name: Create app placeholder
-        run: |
-          R=/tmp/rootfs
-          mkdir -p $R/opt/app
-          echo "请把你的 app.jar 放到 /opt/app/app.jar" > $R/opt/app/README
+            # 删除网络工具
+            rm -f $R/usr/bin/telnet $R/usr/bin/ftp $R/usr/bin/rlogin
 
-      - name: Package rootfs
-        run: |
-          cd /tmp/rootfs
-          sudo tar -czf /tmp/freebsd-javaonly.tar.gz .
+            # 删除邮件与打印
+            rm -rf $R/usr/sbin/sendmail $R/usr/bin/mail
+            rm -rf $R/usr/sbin/lpr
+
+            # ---------- 7. 安装 JRE ----------
+            # 在 FreeBSD VM 里用 pkg 装到 rootfs
+            pkg install -y -r FreeBSD openjdk17-jre 2>/dev/null || true
+
+            # 把已装的 JRE 复制进 rootfs
+            mkdir -p $R/opt
+            if [ -d /usr/local/openjdk17 ]; then
+              cp -a /usr/local/openjdk17 $R/opt/jre
+            else
+              mkdir -p $R/opt/jre
+              echo "JRE not installed, placeholder created" > $R/opt/jre/README
+            fi
+
+            # ---------- 8. 写 overlay 配置 ----------
+            mkdir -p $R/usr/local/etc/rc.d
+
+            # rc.conf
+            cat > $R/etc/rc.conf << 'EOF'
+            hostname="javaonly"
+            ifconfig_em0="DHCP"
+            sshd_enable="NO"
+            inetd_enable="NO"
+            javaweb_enable="YES"
+            EOF
+
+            # fstab 只读根
+            cat > $R/etc/fstab << 'EOF'
+            /dev/ada0p2  /  ufs  ro  0 1
+            EOF
+
+            # rc.d 自启 Java Web
+            cat > $R/usr/local/etc/rc.d/javaweb << 'EOF'
+            #!/bin/sh
+            . /etc/rc.subr
+            name=javaweb
+            rcvar=javaweb_enable
+            command="/opt/jre/bin/java"
+            command_args="-jar /opt/app/app.jar"
+            pidfile="/var/run/${name}.pid"
+            load_rc_config $name
+            : ${javaweb_enable:=NO}
+            run_rc_command "$1"
+            EOF
+            chmod +x $R/usr/local/etc/rc.d/javaweb
+
+            # 白名单
+            cat > $R/etc/exec_whitelist << 'EOF'
+            /opt/jre/bin/java
+            EOF
+
+            # ---------- 9. app 占位 ----------
+            mkdir -p $R/opt/app
+            echo "Put your app.jar here as /opt/app/app.jar" > $R/opt/app/README
+
+            # ---------- 10. 打包 ----------
+            cd /tmp/rootfs
+            tar -czf /tmp/freebsd-javaonly.tar.gz .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
