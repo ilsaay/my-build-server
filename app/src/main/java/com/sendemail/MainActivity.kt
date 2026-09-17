@@ -1,55 +1,85 @@
 package com.sendemail
 
 import android.os.Bundle
-import android.widget.*
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var host: EditText
+    private lateinit var port: EditText
+    private lateinit var user: EditText
+    private lateinit var pass: EditText
+    private lateinit var to: EditText
+    private lateinit var subject: EditText
+    private lateinit var body: EditText
+    private lateinit var log: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val saved = Prefs.load(this)
+
+        host = EditText(this).apply { hint = "SMTP 服务器"; setText(saved.host) }
+        port = EditText(this).apply { hint = "端口"; setText(saved.port.toString()) }
+        user = EditText(this).apply { hint = "邮箱账号"; setText(saved.user) }
+        pass = EditText(this).apply { hint = "授权码"; setText(saved.pass) }
+        to = EditText(this).apply { hint = "收件人" }
+        subject = EditText(this).apply { hint = "主题" }
+        body = EditText(this).apply { hint = "正文"; minLines = 4 }
+        log = TextView(this).apply { text = "就绪" }
+
+        val saveBtn = Button(this).apply { text = "保存账号" }
+        val sendBtn = Button(this).apply { text = "发送" }
+
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 40, 40, 40)
+            setPadding(48, 48, 48, 48)
         }
-
-        val host = EditText(this).apply { hint = "SMTP 服务器，如 smtp.126.com" }
-        val port = EditText(this).apply { hint = "端口，465" }
-        val user = EditText(this).apply { hint = "邮箱账号" }
-        val pass = EditText(this).apply { hint = "授权码" }
-        val to   = EditText(this).apply { hint = "收件人" }
-        val subj = EditText(this).apply { hint = "主题" }
-        val body = EditText(this).apply { hint = "正文" }
-        val btn  = Button(this).apply { text = "发送" }
-        val log  = TextView(this)
-
-        listOf(host, port, user, pass, to, subj, body, btn, log)
+        listOf(host, port, user, pass, to, subject, body, saveBtn, sendBtn, log)
             .forEach { layout.addView(it) }
 
-        btn.setOnClickListener {
+        saveBtn.setOnClickListener {
+            Prefs.save(this, Prefs.Account(
+                host.text.toString().trim(),
+                port.text.toString().toIntOrNull() ?: 465,
+                user.text.toString().trim(),
+                pass.text.toString(),
+            ))
+            Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
+        }
+
+        sendBtn.setOnClickListener {
             log.text = "发送中..."
             thread {
-                try {
+                val result = try {
                     SmtpClient.send(
                         SmtpClient.Config(
-                            host = host.text.toString(),
+                            host = host.text.toString().trim(),
                             port = port.text.toString().toIntOrNull() ?: 465,
-                            user = user.text.toString(),
+                            user = user.text.toString().trim(),
                             pass = pass.text.toString(),
                         ),
-                        from = user.text.toString(),
-                        to = to.text.toString(),
-                        subject = subj.text.toString(),
+                        from = user.text.toString().trim(),
+                        to = to.text.toString().trim(),
+                        subject = subject.text.toString(),
                         body = body.text.toString(),
                     )
-                    runOnUiThread { log.text = "发送成功" }
+                    "发送成功"
                 } catch (e: Exception) {
-                    runOnUiThread { log.text = "失败: ${e.message}" }
+                    "失败: ${e.message}"
                 }
+                runOnUiThread { log.text = result }
             }
         }
 
-        setContentView(layout)
+        val scroll = ScrollView(this).apply { addView(layout) }
+        setContentView(scroll)
     }
 }
