@@ -17,21 +17,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # Run the actual FreeBSD build inside a real FreeBSD VM.
+      # ============================================================
+      # REAL FREEBSD BUILD ENVIRONMENT
       #
-      # IMPORTANT:
-      # release.sh is NOT executed by Ubuntu.
-      # It is executed inside FreeBSD 14.3.
-      # ------------------------------------------------------------
+      # release.sh MUST run inside FreeBSD.
+      # It must NOT be executed directly on Ubuntu.
+      # ============================================================
       - name: Build inside FreeBSD 14.3
         id: freebsd
         uses: vmactions/freebsd-vm@v1.2.4
         with:
           release: "14.3"
           arch: "amd64"
+
           mem: 8192
           cpu: 4
+
           usesh: true
           copyback: true
 
@@ -48,10 +49,40 @@ jobs:
             df -h
 
             echo
-            echo "Installing build dependencies..."
+            echo "========================================"
+            echo " Configure pkg"
+            echo "========================================"
 
+            # ------------------------------------------------------
+            # FreeBSD 14.3 is EOL, while the FreeBSD:14 package
+            # repository now contains packages built with a newer
+            # OSVERSION.
+            #
+            # Allow pkg to use the FreeBSD:14 packages.
+            # ------------------------------------------------------
+
+            export IGNORE_OSVERSION=YES
+            export ASSUME_ALWAYS_YES=yes
+
+            echo "IGNORE_OSVERSION=$IGNORE_OSVERSION"
+            echo "ASSUME_ALWAYS_YES=$ASSUME_ALWAYS_YES"
+
+            echo
+            echo "========================================"
+            echo " Update pkg repository"
+            echo "========================================"
+
+            IGNORE_OSVERSION=YES \
+            ASSUME_ALWAYS_YES=yes \
             pkg update -f
 
+            echo
+            echo "========================================"
+            echo " Install build dependencies"
+            echo "========================================"
+
+            IGNORE_OSVERSION=YES \
+            ASSUME_ALWAYS_YES=yes \
             pkg install -y \
               git \
               ca_root_nss \
@@ -63,18 +94,27 @@ jobs:
               bash \
               gmake
 
+            echo
+            echo "========================================"
+            echo " Installed packages"
+            echo "========================================"
+
+            pkg info
+
+            echo
+            echo "========================================"
+            echo " Prepare completed"
+            echo "========================================"
+
           run: |
             set -eux
 
             echo "========================================"
-            echo " FreeBSD 14.3 release build"
+            echo " FreeBSD version"
             echo "========================================"
 
             freebsd-version
-            uname -m
-            sysctl -n hw.ncpu
-
-            export MAKE_JOBS=4
+            uname -a
 
             echo
             echo "CPU:"
@@ -84,7 +124,19 @@ jobs:
             echo "Disk:"
             df -h
 
+            # ------------------------------------------------------
+            # pkg environment
+            # ------------------------------------------------------
+
+            export IGNORE_OSVERSION=YES
+            export ASSUME_ALWAYS_YES=yes
+
+            # ------------------------------------------------------
+            # Build directory
+            # ------------------------------------------------------
+
             mkdir -p "$GITHUB_WORKSPACE/work"
+
             cd "$GITHUB_WORKSPACE/work"
 
             rm -rf src
@@ -103,7 +155,7 @@ jobs:
             cd src
 
             echo
-            echo "FreeBSD source:"
+            echo "FreeBSD source revision:"
             git describe --always --dirty || true
 
             echo
@@ -112,66 +164,61 @@ jobs:
             echo "========================================"
 
             cat > "$GITHUB_WORKSPACE/work/release.conf" <<'EOF'
-            #!/bin/sh
+            # ========================================================
+            # FreeBSD 14.3 Release Configuration
+            # ========================================================
 
-            # --------------------------------------------------------
-            # FreeBSD release configuration
-            # --------------------------------------------------------
-
-            CHROOTDIR="/scratch"
-
+            # Release target
             TARGET="amd64"
             TARGET_ARCH="amd64"
 
+            # Kernel
             KERNEL="GENERIC"
 
-            # We already cloned the source tree.
-            # Prevent release.sh from downloading another source tree.
+            # Source tree already exists
             NOGIT=1
 
-            # Do not build the ports tree into the release.
+            # Do not build ports tree
             NOPORTS=1
 
-            # Do not include FreeBSD source in the release media.
+            # Do not include FreeBSD source
             NOSRC=1
 
-            # Do not generate release documentation.
+            # Do not build documentation
             NODOC=1
 
-            # Build installation media.
-            WITH_DVD=""
-
-            # Build VM images.
+            # Build VM images
             WITH_VMIMAGES=1
 
-            # VM formats.
+            # VM image formats
             VMFORMATS="raw qcow2"
 
-            # 20 GB virtual disk.
+            # VM disk size
             VMSIZE="20G"
 
-            # Use four build jobs.
+            # Build parallelism
             WORLD_FLAGS="-j4"
             KERNEL_FLAGS="-j4"
             EOF
 
             echo
             echo "release.conf:"
+            echo "----------------------------------------"
             cat "$GITHUB_WORKSPACE/work/release.conf"
+            echo "----------------------------------------"
 
             echo
             echo "========================================"
-            echo " Check release.sh syntax"
+            echo " Check release.sh"
             echo "========================================"
 
             /bin/sh -n release/release.sh
 
-            echo
             echo "release.sh syntax OK"
 
             echo
             echo "========================================"
-            echo " Build FreeBSD release"
+            echo " Start FreeBSD release build"
             echo "========================================"
 
             export MAKE_JOBS=4
@@ -185,7 +232,8 @@ jobs:
             echo "========================================"
 
             echo
-            echo "Release files:"
+            echo "Searching for release files..."
+
             find "$GITHUB_WORKSPACE/work" \
               -type f \
               \( \
@@ -195,7 +243,8 @@ jobs:
                 -o -name "*.txz" \
                 -o -name "MANIFEST" \
               \) \
-              -print
+              -print \
+              | sort
 
             echo
             echo "========================================"
@@ -204,34 +253,40 @@ jobs:
 
             mkdir -p "$GITHUB_WORKSPACE/work/artifacts"
 
-            find "$GITHUB_WORKSPACE/work/src" \
-              -maxdepth 3 \
+            find "$GITHUB_WORKSPACE/work" \
               -type f \
               \( \
                 -name "*.iso" \
                 -o -name "*.img" \
                 -o -name "*.qcow2" \
               \) \
-              -exec cp -v {} "$GITHUB_WORKSPACE/work/artifacts/" \; \
+              -exec cp -v {} \
+              "$GITHUB_WORKSPACE/work/artifacts/" \; \
               || true
 
             echo
-            echo "Artifacts:"
-            ls -lah "$GITHUB_WORKSPACE/work/artifacts" || true
+            echo "========================================"
+            echo " Final artifacts"
+            echo "========================================"
 
-      # ------------------------------------------------------------
-      # Upload everything generated by the FreeBSD build.
-      # ------------------------------------------------------------
+            ls -lah \
+              "$GITHUB_WORKSPACE/work/artifacts" \
+              || true
+
+      # ============================================================
+      # Show output on Ubuntu
+      # ============================================================
       - name: Find build output
         shell: bash
         run: |
           set -eux
 
           echo "========================================"
-          echo " Searching build output"
+          echo " Build output"
           echo "========================================"
 
-          find . -type f \
+          find . \
+            -type f \
             \( \
               -name "*.iso" \
               -o -name "*.img" \
@@ -240,6 +295,9 @@ jobs:
             -print \
             | sort
 
+      # ============================================================
+      # ISO
+      # ============================================================
       - name: Upload FreeBSD ISO
         uses: actions/upload-artifact@v4
         with:
@@ -249,6 +307,9 @@ jobs:
           if-no-files-found: warn
           compression-level: 0
 
+      # ============================================================
+      # RAW IMG
+      # ============================================================
       - name: Upload FreeBSD IMG
         uses: actions/upload-artifact@v4
         with:
@@ -258,6 +319,9 @@ jobs:
           if-no-files-found: warn
           compression-level: 0
 
+      # ============================================================
+      # QCOW2
+      # ============================================================
       - name: Upload FreeBSD QCOW2
         uses: actions/upload-artifact@v4
         with:
