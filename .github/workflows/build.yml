@@ -18,154 +18,120 @@ jobs:
         uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
+          mem: 8192
+          cpu: 4
           prepare: |
             pkg install -y git
           run: |
             set -e
+            set -x
 
             # ---------- 1. 拉取 FreeBSD 源码 ----------
             git clone --depth 1 https://github.com/freebsd/freebsd-src.git /tmp/src
             cd /tmp/src
 
-            # ---------- 2. 写定制内核配置 ----------
+            # ---------- 2. 写定制内核配置（EOF 必须顶格！） ----------
             cat > sys/amd64/conf/JAVAONLY << 'EOF'
-            cpu             HAMMER
-            ident           JAVAONLY
+cpu             HAMMER
+ident           JAVAONLY
+device          isa
+device          pci
+device          acpi
+device          smp
+device          vt
+device          ufs
+device          ahci
+device          nvme
+device          em
+device          miibus
+options         INET
+options         INET6
+options         SMP
+nodevice        kdb
+nodevice        ddb
+EOF
 
-            # 基础必需
-            device          isa
-            device          pci
-            device          acpi
-            device          smp
-            device          vt
-            device          ufs
-            device          ahci
-            device          nvme
-            device          em
-            device          miibus
+            # ---------- 3. 确认配置写入成功 ----------
+            ls -l sys/amd64/conf/JAVAONLY
+            head -5 sys/amd64/conf/JAVAONLY
 
-            # 网络
-            options         INET
-            options         INET6
-            options         TCP_HHOOK
-
-            # 安全
-            options         MAC
-            options         AUDIT
-
-            # 删除调试
-            nodevice        kdb
-            nodevice        ddb
-            nodevice        gdb
-
-            # 不包含：无线、声卡、蓝牙、摄像头、游戏手柄
-            EOF
-
-            # ---------- 3. 编译内核 ----------
+            # ---------- 4. 编译内核 ----------
             NCPU=$(sysctl -n hw.ncpu)
+            echo "CPU count: ${NCPU}"
             make buildkernel KERNCONF=JAVAONLY -j${NCPU}
 
-            # ---------- 4. 编译 world ----------
+            # ---------- 5. 编译 world ----------
             make buildworld -j${NCPU}
 
-            # ---------- 5. 安装到 rootfs ----------
+            # ---------- 6. 安装到 rootfs ----------
             mkdir -p /tmp/rootfs
             make installworld DESTDIR=/tmp/rootfs
             make installkernel DESTDIR=/tmp/rootfs KERNCONF=JAVAONLY
 
-            # ---------- 6. 精简 rootfs ----------
+            # ---------- 7. 精简 rootfs ----------
             R=/tmp/rootfs
 
-            # 删除 shell
             rm -f $R/bin/sh $R/bin/csh $R/bin/tcsh $R/bin/ksh
-
-            # 删除编译器
             rm -f $R/usr/bin/cc $R/usr/bin/c++ $R/usr/bin/gcc $R/usr/bin/clang
             rm -rf $R/usr/lib/clang
-
-            # 删除解释器
             rm -f $R/usr/bin/python* $R/usr/bin/perl $R/usr/bin/awk $R/usr/bin/sed
-
-            # 删除包管理
             rm -f $R/usr/sbin/pkg $R/usr/sbin/pkg-static
             rm -rf $R/var/db/pkg
-
-            # 删除编辑器
             rm -f $R/usr/bin/vi $R/usr/bin/ee $R/usr/bin/nano
-
-            # 删除开发工具
-            rm -f $R/usr/bin/make $R/usr/bin/yacc $R/usr/bin/lex
-            rm -f $R/usr/bin/bmake
-
-            # 删除文档与游戏
-            rm -rf $R/usr/share/doc $R/usr/share/man
-            rm -rf $R/usr/games
-
-            # 删除调试工具
+            rm -f $R/usr/bin/make $R/usr/bin/yacc $R/usr/bin/lex $R/usr/bin/bmake
+            rm -rf $R/usr/share/doc $R/usr/share/man $R/usr/games
             rm -f $R/usr/bin/gdb $R/usr/bin/truss $R/usr/bin/ktrace
-
-            # 删除网络工具
             rm -f $R/usr/bin/telnet $R/usr/bin/ftp $R/usr/bin/rlogin
+            rm -rf $R/usr/sbin/sendmail $R/usr/bin/mail $R/usr/sbin/lpr
 
-            # 删除邮件与打印
-            rm -rf $R/usr/sbin/sendmail $R/usr/bin/mail
-            rm -rf $R/usr/sbin/lpr
-
-            # ---------- 7. 安装 JRE ----------
-            # 在 FreeBSD VM 里用 pkg 装到 rootfs
-            pkg install -y -r FreeBSD openjdk17-jre 2>/dev/null || true
-
-            # 把已装的 JRE 复制进 rootfs
+            # ---------- 8. 安装 JRE ----------
+            pkg install -y openjdk17-jre || true
             mkdir -p $R/opt
             if [ -d /usr/local/openjdk17 ]; then
               cp -a /usr/local/openjdk17 $R/opt/jre
             else
               mkdir -p $R/opt/jre
-              echo "JRE not installed, placeholder created" > $R/opt/jre/README
+              echo "JRE not installed" > $R/opt/jre/README
             fi
 
-            # ---------- 8. 写 overlay 配置 ----------
+            # ---------- 9. 写 overlay 配置 ----------
             mkdir -p $R/usr/local/etc/rc.d
 
-            # rc.conf
             cat > $R/etc/rc.conf << 'EOF'
-            hostname="javaonly"
-            ifconfig_em0="DHCP"
-            sshd_enable="NO"
-            inetd_enable="NO"
-            javaweb_enable="YES"
-            EOF
+hostname="javaonly"
+ifconfig_em0="DHCP"
+sshd_enable="NO"
+inetd_enable="NO"
+javaweb_enable="YES"
+EOF
 
-            # fstab 只读根
             cat > $R/etc/fstab << 'EOF'
-            /dev/ada0p2  /  ufs  ro  0 1
-            EOF
+/dev/ada0p2  /  ufs  ro  0 1
+EOF
 
-            # rc.d 自启 Java Web
             cat > $R/usr/local/etc/rc.d/javaweb << 'EOF'
-            #!/bin/sh
-            . /etc/rc.subr
-            name=javaweb
-            rcvar=javaweb_enable
-            command="/opt/jre/bin/java"
-            command_args="-jar /opt/app/app.jar"
-            pidfile="/var/run/${name}.pid"
-            load_rc_config $name
-            : ${javaweb_enable:=NO}
-            run_rc_command "$1"
-            EOF
+#!/bin/sh
+. /etc/rc.subr
+name=javaweb
+rcvar=javaweb_enable
+command="/opt/jre/bin/java"
+command_args="-jar /opt/app/app.jar"
+pidfile="/var/run/${name}.pid"
+load_rc_config $name
+: ${javaweb_enable:=NO}
+run_rc_command "$1"
+EOF
             chmod +x $R/usr/local/etc/rc.d/javaweb
 
-            # 白名单
             cat > $R/etc/exec_whitelist << 'EOF'
-            /opt/jre/bin/java
-            EOF
+/opt/jre/bin/java
+EOF
 
-            # ---------- 9. app 占位 ----------
+            # ---------- 10. app 占位 ----------
             mkdir -p $R/opt/app
             echo "Put your app.jar here as /opt/app/app.jar" > $R/opt/app/README
 
-            # ---------- 10. 打包 ----------
+            # ---------- 11. 打包 ----------
             cd /tmp/rootfs
             tar -czf /tmp/freebsd-javaonly.tar.gz .
 
