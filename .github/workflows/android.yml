@@ -1,27 +1,43 @@
-name: Scaffold send.email Project
+name: Build send.email APK
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  scaffold:
+  build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create standard Android project structure
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        run: |
+          mkdir -p $ANDROID_HOME/cmdline-tools
+          cd $ANDROID_HOME/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip
+          mv cmdline-tools latest
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Create project structure
         working-directory: app/sendemail
         run: |
           set -e
+
+          mkdir -p app/src/main/java/com/sendemail
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/menu
 
           cat > build.gradle <<'EOF'
           plugins {
@@ -54,10 +70,6 @@ jobs:
           org.gradle.jvmargs=-Xmx2048m
           EOF
 
-          mkdir -p app/src/main/java/com/sendemail
-          mkdir -p app/src/main/res/values
-          mkdir -p gradle/wrapper
-
           cat > app/build.gradle <<'EOF'
           plugins {
               id 'com.android.application'
@@ -72,8 +84,8 @@ jobs:
                   applicationId "com.sendemail"
                   minSdk 21
                   targetSdk 34
-                  versionCode 1
-                  versionName "0.1-beta"
+                  versionCode 2
+                  versionName "0.2-beta"
               }
 
               compileOptions {
@@ -84,8 +96,11 @@ jobs:
           }
 
           dependencies {
+              implementation 'com.google.android.material:material:1.11.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.recyclerview:recyclerview:1.3.2'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
           }
           EOF
 
@@ -101,15 +116,53 @@ jobs:
                   android:usesCleartextTraffic="false"
                   android:theme="@style/Theme.SendEmail">
                   <activity
-                      android:name=".MainActivity"
+                      android:name=".LoginActivity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+                  <activity android:name=".InboxActivity" android:exported="false" />
+                  <activity android:name=".MailDetailActivity" android:exported="false" />
+                  <activity android:name=".ComposeActivity" android:exported="false" />
               </application>
           </manifest>
+          EOF
+
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.SendEmail" parent="Theme.Material3.DayNight.NoActionBar">
+                  <item name="colorPrimary">@color/md_theme_primary</item>
+                  <item name="colorOnPrimary">@color/md_theme_onPrimary</item>
+                  <item name="colorPrimaryContainer">@color/md_theme_primaryContainer</item>
+                  <item name="colorOnPrimaryContainer">@color/md_theme_onPrimaryContainer</item>
+                  <item name="colorSecondary">@color/md_theme_secondary</item>
+                  <item name="colorOnSecondary">@color/md_theme_onSecondary</item>
+                  <item name="colorSurface">@color/md_theme_surface</item>
+                  <item name="colorOnSurface">@color/md_theme_onSurface</item>
+                  <item name="colorSurfaceVariant">@color/md_theme_surfaceVariant</item>
+                  <item name="colorOnSurfaceVariant">@color/md_theme_onSurfaceVariant</item>
+                  <item name="android:statusBarColor">@color/md_theme_surface</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/values/colors.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="md_theme_primary">#6750A4</color>
+              <color name="md_theme_onPrimary">#FFFFFF</color>
+              <color name="md_theme_primaryContainer">#EADDFF</color>
+              <color name="md_theme_onPrimaryContainer">#21005D</color>
+              <color name="md_theme_secondary">#625B71</color>
+              <color name="md_theme_onSecondary">#FFFFFF</color>
+              <color name="md_theme_surface">#FFFBFE</color>
+              <color name="md_theme_onSurface">#1C1B1F</color>
+              <color name="md_theme_surfaceVariant">#E7E0EC</color>
+              <color name="md_theme_onSurfaceVariant">#49454F</color>
+          </resources>
           EOF
 
           cat > app/src/main/res/values/strings.xml <<'EOF'
@@ -119,29 +172,952 @@ jobs:
           </resources>
           EOF
 
-          cat > app/src/main/res/values/themes.xml <<'EOF'
+          cat > app/src/main/res/menu/inbox_menu.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <style name="Theme.SendEmail" parent="Theme.AppCompat.DayNight.DarkActionBar" />
-          </resources>
+          <menu xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:id="@+id/action_refresh" android:title="刷新" />
+              <item android:id="@+id/action_compose" android:title="写邮件" />
+              <item android:id="@+id/action_logout" android:title="退出登录" />
+          </menu>
           EOF
 
-          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.2-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
+          cat > app/src/main/java/com/sendemail/Prefs.kt <<'EOF'
+          package com.sendemail
+
+          import android.content.Context
+
+          object Prefs {
+              private const val NAME = "send_email_prefs"
+              private const val KEY_USER = "user"
+              private const val KEY_PASS = "pass"
+
+              const val IMAP_HOST = "imap.126.com"
+              const val IMAP_PORT = 993
+              const val SMTP_HOST = "smtp.126.com"
+              const val SMTP_PORT = 465
+
+              data class Account(val user: String, val pass: String)
+
+              fun save(ctx: Context, a: Account) {
+                  ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit()
+                      .putString(KEY_USER, a.user)
+                      .putString(KEY_PASS, a.pass)
+                      .apply()
+              }
+
+              fun load(ctx: Context): Account {
+                  val sp = ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+                  return Account(
+                      user = sp.getString(KEY_USER, "") ?: "",
+                      pass = sp.getString(KEY_PASS, "") ?: "",
+                  )
+              }
+
+              fun clear(ctx: Context) {
+                  ctx.getSharedPreferences(NAME, Context.MODE_PRIVATE).edit().clear().apply()
+              }
+
+              fun isLoggedIn(ctx: Context): Boolean = load(ctx).user.isNotBlank()
+          }
           EOF
 
-          echo "=== 生成的文件结构 ==="
-          find . -type f | sort
+          cat > app/src/main/java/com/sendemail/SmtpClient.kt <<'EOF'
+          package com.sendemail
 
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add app/sendemail
-          git diff --staged --quiet && echo "无变化，跳过提交" && exit 0
-          git commit -m "chore: scaffold send.email Android project structure"
-          git push
+          import java.io.BufferedReader
+          import java.io.BufferedWriter
+          import java.io.IOException
+          import java.io.InputStreamReader
+          import java.io.OutputStreamWriter
+          import java.net.InetSocketAddress
+          import java.util.Base64
+          import javax.net.ssl.SSLSocket
+          import javax.net.ssl.SSLSocketFactory
+
+          object SmtpClient {
+
+              class SmtpException(message: String) : IOException(message)
+
+              fun send(
+                  user: String,
+                  pass: String,
+                  to: String,
+                  subject: String,
+                  body: String,
+              ) {
+                  if (user.isBlank()) throw SmtpException("邮箱不能为空")
+                  if (pass.isBlank()) throw SmtpException("授权码不能为空")
+                  if (to.isBlank()) throw SmtpException("收件人不能为空")
+
+                  val socket = SSLSocketFactory.getDefault()
+                      .createSocket() as SSLSocket
+                  socket.connect(InetSocketAddress(Prefs.SMTP_HOST, Prefs.SMTP_PORT), 15000)
+                  socket.soTimeout = 15000
+                  socket.startHandshake()
+
+                  try {
+                      val reader = BufferedReader(InputStreamReader(socket.inputStream, "UTF-8"))
+                      val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, "UTF-8"))
+
+                      fun readLine(): String = reader.readLine() ?: throw SmtpException("连接被关闭")
+                      fun expect(code: String) {
+                          val line = readLine()
+                          if (!line.startsWith(code)) throw SmtpException("SMTP: $line")
+                      }
+                      fun sendLine(line: String) {
+                          writer.write(line + "\r\n"); writer.flush()
+                      }
+
+                      expect("220")
+                      sendLine("EHLO send.email")
+                      while (true) { val l = readLine(); if (l.length >= 4 && l[3] == ' ') break }
+
+                      val auth = Base64.getEncoder()
+                          .encodeToString("\u0000$user\u0000$pass".toByteArray(Charsets.UTF_8))
+                      sendLine("AUTH PLAIN $auth")
+                      expect("235")
+
+                      sendLine("MAIL FROM:<$user>")
+                      expect("250")
+                      sendLine("RCPT TO:<$to>")
+                      expect("250")
+                      sendLine("DATA")
+                      expect("354")
+
+                      val encSubject = "=?UTF-8?B?" +
+                          Base64.getEncoder().encodeToString(subject.toByteArray(Charsets.UTF_8)) + "?="
+
+                      val msg = buildString {
+                          append("From: $user\r\n")
+                          append("To: $to\r\n")
+                          append("Subject: $encSubject\r\n")
+                          append("MIME-Version: 1.0\r\n")
+                          append("Content-Type: text/plain; charset=UTF-8\r\n")
+                          append("Content-Transfer-Encoding: 8bit\r\n\r\n")
+                          append(body)
+                          append("\r\n")
+                      }
+                      writer.write(msg)
+                      writer.write(".\r\n"); writer.flush()
+                      expect("250")
+                      sendLine("QUIT")
+                  } finally {
+                      try { socket.close() } catch (_: Exception) {}
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/sendemail/ImapClient.kt <<'EOF'
+          package com.sendemail
+
+          import java.io.BufferedReader
+          import java.io.BufferedWriter
+          import java.io.IOException
+          import java.io.InputStreamReader
+          import java.io.OutputStreamWriter
+          import java.net.InetSocketAddress
+          import java.util.Base64
+          import javax.net.ssl.SSLSocket
+          import javax.net.ssl.SSLSocketFactory
+
+          data class MailHeader(
+              val uid: String,
+              val from: String,
+              val subject: String,
+              val date: String,
+          )
+
+          data class MailBody(
+              val from: String,
+              val subject: String,
+              val date: String,
+              val body: String,
+          )
+
+          object ImapClient {
+
+              class ImapException(message: String) : IOException(message)
+
+              private fun open(user: String, pass: String): Pair<SSLSocket, BufferedReader> {
+                  val socket = SSLSocketFactory.getDefault().createSocket() as SSLSocket
+                  socket.connect(InetSocketAddress(Prefs.IMAP_HOST, Prefs.IMAP_PORT), 15000)
+                  socket.soTimeout = 20000
+                  socket.startHandshake()
+                  val reader = BufferedReader(InputStreamReader(socket.inputStream, "UTF-8"))
+                  val greeting = reader.readLine() ?: throw ImapException("无响应")
+                  if (!greeting.startsWith("* OK")) throw ImapException("IMAP: $greeting")
+                  return socket to reader
+              }
+
+              private fun login(
+                  reader: BufferedReader,
+                  writer: BufferedWriter,
+                  user: String,
+                  pass: String,
+              ) {
+                  val token = Base64.getEncoder()
+                      .encodeToString("\u0000$user\u0000$pass".toByteArray(Charsets.UTF_8))
+                  writer.write("A1 AUTHENTICATE PLAIN $token\r\n"); writer.flush()
+                  var line: String
+                  while (true) {
+                      line = reader.readLine() ?: throw ImapException("登录无响应")
+                      if (line.startsWith("A1 ")) break
+                  }
+                  if (!line.startsWith("A1 OK")) throw ImapException("登录失败: $line")
+              }
+
+              private fun readResponse(reader: BufferedReader, tag: String): List<String> {
+                  val lines = mutableListOf<String>()
+                  while (true) {
+                      val line = reader.readLine() ?: break
+                      lines.add(line)
+                      if (line.startsWith("$tag ")) break
+                  }
+                  return lines
+              }
+
+              fun fetchInbox(user: String, pass: String, limit: Int = 20): List<MailHeader> {
+                  val (socket, reader) = open(user, pass)
+                  val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, "UTF-8"))
+                  try {
+                      login(reader, writer, user, pass)
+
+                      writer.write("A2 SELECT INBOX\r\n"); writer.flush()
+                      var exists = 0
+                      while (true) {
+                          val l = reader.readLine() ?: break
+                          if (l.startsWith("*") && l.contains("EXISTS")) {
+                              exists = l.split(" ").getOrNull(1)?.toIntOrNull() ?: 0
+                          }
+                          if (l.startsWith("A2 ")) break
+                      }
+
+                      if (exists == 0) return emptyList()
+                      val start = maxOf(1, exists - limit + 1)
+                      val range = "$start:$exists"
+
+                      writer.write("A3 FETCH $range (BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])\r\n")
+                      writer.flush()
+
+                      val result = mutableListOf<MailHeader>()
+                      var currentUid = ""
+                      val headerBuf = StringBuilder()
+                      var inHeader = false
+
+                      while (true) {
+                          val l = reader.readLine() ?: break
+                          if (l.startsWith("A3 ")) break
+
+                          if (l.contains("FETCH") && l.contains("UID")) {
+                              currentUid = Regex("UID (\\d+)").find(l)?.groupValues?.get(1) ?: ""
+                          }
+                          if (l.contains("BODY[HEADER.FIELDS")) {
+                              inHeader = true
+                              headerBuf.setLength(0)
+                              val afterBrace = l.substringAfter("{", "")
+                              if (afterBrace.isNotEmpty()) headerBuf.append(afterBrace)
+                              continue
+                          }
+                          if (inHeader) {
+                              if (l == ")") {
+                                  inHeader = false
+                                  val raw = headerBuf.toString()
+                                  val from = Regex("(?i)^From:\\s*(.+)$", RegexOption.MULTILINE)
+                                      .find(raw)?.groupValues?.get(1)?.trim() ?: ""
+                                  val subject = decodeMime(
+                                      Regex("(?i)^Subject:\\s*(.+)$", RegexOption.MULTILINE)
+                                          .find(raw)?.groupValues?.get(1)?.trim() ?: ""
+                                  )
+                                  val date = Regex("(?i)^Date:\\s*(.+)$", RegexOption.MULTILINE)
+                                      .find(raw)?.groupValues?.get(1)?.trim() ?: ""
+                                  result.add(MailHeader(currentUid, from, subject, date))
+                              } else {
+                                  headerBuf.append(l).append("\n")
+                              }
+                          }
+                      }
+                      return result.reversed()
+                  } finally {
+                      try { socket.close() } catch (_: Exception) {}
+                  }
+              }
+
+              fun fetchBody(user: String, pass: String, uid: String): MailBody {
+                  val (socket, reader) = open(user, pass)
+                  val writer = BufferedWriter(OutputStreamWriter(socket.outputStream, "UTF-8"))
+                  try {
+                      login(reader, writer, user, pass)
+                      writer.write("A2 SELECT INBOX\r\n"); writer.flush()
+                      while (true) {
+                          val l = reader.readLine() ?: break
+                          if (l.startsWith("A2 ")) break
+                      }
+
+                      writer.write("A3 FETCH $uid (BODY.PEEK[])\r\n"); writer.flush()
+
+                      val raw = StringBuilder()
+                      var capturing = false
+                      while (true) {
+                          val l = reader.readLine() ?: break
+                          if (l.startsWith("A3 ")) break
+                          if (!capturing && l.contains("BODY[]") && l.contains("{")) {
+                              capturing = true
+                              continue
+                          }
+                          if (capturing) {
+                              if (l == ")") break
+                              raw.append(l).append("\r\n")
+                          }
+                      }
+
+                      val text = raw.toString()
+                      val from = Regex("(?i)^From:\\s*(.+)$", RegexOption.MULTILINE)
+                          .find(text)?.groupValues?.get(1)?.trim() ?: ""
+                      val subject = decodeMime(
+                          Regex("(?i)^Subject:\\s*(.+)$", RegexOption.MULTILINE)
+                              .find(text)?.groupValues?.get(1)?.trim() ?: ""
+                      )
+                      val date = Regex("(?i)^Date:\\s*(.+)$", RegexOption.MULTILINE)
+                          .find(text)?.groupValues?.get(1)?.trim() ?: ""
+
+                      val bodyStart = text.indexOf("\r\n\r\n")
+                      var body = if (bodyStart >= 0) text.substring(bodyStart + 4) else text
+                      body = body.substringBefore("\r\n)\r\n").trim()
+
+                      return MailBody(from, subject, date, body)
+                  } finally {
+                      try { socket.close() } catch (_: Exception) {}
+                  }
+              }
+
+              private fun decodeMime(s: String): String {
+                  val m = Regex("=\\?UTF-8\\?B\\?([^?]+)\\?=", RegexOption.IGNORE_CASE).find(s) ?: return s
+                  return try {
+                      String(Base64.getDecoder().decode(m.groupValues[1]), Charsets.UTF_8)
+                  } catch (_: Exception) { s }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/sendemail/LoginActivity.kt <<'EOF'
+          package com.sendemail
+
+          import android.content.Intent
+          import android.os.Bundle
+          import android.widget.Toast
+          import androidx.appcompat.app.AppCompatActivity
+          import com.google.android.material.button.MaterialButton
+          import com.google.android.material.textfield.TextInputEditText
+          import com.google.android.material.textfield.TextInputLayout
+
+          class LoginActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  if (Prefs.isLoggedIn(this)) {
+                      startActivity(Intent(this, InboxActivity::class.java))
+                      finish(); return
+                  }
+
+                  setContentView(R.layout.activity_login)
+
+                  val userLayout = findViewById<TextInputLayout>(R.id.userLayout)
+                  val passLayout = findViewById<TextInputLayout>(R.id.passLayout)
+                  val userInput = findViewById<TextInputEditText>(R.id.userInput)
+                  val passInput = findViewById<TextInputEditText>(R.id.passInput)
+                  val loginBtn = findViewById<MaterialButton>(R.id.loginBtn)
+
+                  loginBtn.setOnClickListener {
+                      val u = userInput.text.toString().trim()
+                      val p = passInput.text.toString()
+                      if (u.isBlank() || p.isBlank()) {
+                          Toast.makeText(this, "请填写完整", Toast.LENGTH_SHORT).show()
+                          return@setOnClickListener
+                      }
+                      Prefs.save(this, Prefs.Account(u, p))
+                      Toast.makeText(this, "已保存，正在登录", Toast.LENGTH_SHORT).show()
+                      startActivity(Intent(this, InboxActivity::class.java))
+                      finish()
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/sendemail/InboxActivity.kt <<'EOF'
+          package com.sendemail
+
+          import android.content.Intent
+          import android.os.Bundle
+          import android.view.Menu
+          import android.view.MenuItem
+          import android.view.View
+          import android.widget.ProgressBar
+          import android.widget.TextView
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.recyclerview.widget.LinearLayoutManager
+          import androidx.recyclerview.widget.RecyclerView
+          import com.google.android.material.appbar.MaterialToolbar
+          import kotlin.concurrent.thread
+
+          class InboxActivity : AppCompatActivity() {
+
+              private lateinit var adapter: MailAdapter
+              private lateinit var progress: ProgressBar
+              private lateinit var empty: TextView
+              private lateinit var account: Prefs.Account
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_inbox)
+
+                  account = Prefs.load(this)
+                  if (account.user.isBlank()) {
+                      startActivity(Intent(this, LoginActivity::class.java))
+                      finish(); return
+                  }
+
+                  val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
+                  setSupportActionBar(toolbar)
+                  title = "收件箱"
+
+                  progress = findViewById(R.id.progress)
+                  empty = findViewById(R.id.empty)
+
+                  adapter = MailAdapter { header ->
+                      val i = Intent(this, MailDetailActivity::class.java)
+                      i.putExtra("uid", header.uid)
+                      i.putExtra("subject", header.subject)
+                      i.putExtra("from", header.from)
+                      i.putExtra("date", header.date)
+                      startActivity(i)
+                  }
+
+                  findViewById<RecyclerView>(R.id.list).apply {
+                      layoutManager = LinearLayoutManager(this@InboxActivity)
+                      adapter = this@InboxActivity.adapter
+                  }
+
+                  load()
+              }
+
+              private fun load() {
+                  progress.visibility = View.VISIBLE
+                  empty.visibility = View.GONE
+                  thread {
+                      val result = try {
+                          ImapClient.fetchInbox(account.user, account.pass)
+                      } catch (e: Exception) {
+                          runOnUiThread {
+                              progress.visibility = View.GONE
+                              empty.visibility = View.VISIBLE
+                              empty.text = "加载失败: ${e.message}"
+                          }
+                          return@thread
+                      }
+                      runOnUiThread {
+                          progress.visibility = View.GONE
+                          adapter.submit(result)
+                          empty.visibility = if (result.isEmpty()) View.VISIBLE else View.GONE
+                      }
+                  }
+              }
+
+              override fun onCreateOptionsMenu(menu: Menu): Boolean {
+                  menuInflater.inflate(R.menu.inbox_menu, menu)
+                  return true
+              }
+
+              override fun onOptionsItemSelected(item: MenuItem): Boolean {
+                  return when (item.itemId) {
+                      R.id.action_refresh -> { load(); true }
+                      R.id.action_compose -> {
+                          startActivity(Intent(this, ComposeActivity::class.java)); true
+                      }
+                      R.id.action_logout -> {
+                          Prefs.clear(this)
+                          startActivity(Intent(this, LoginActivity::class.java))
+                          finish(); true
+                      }
+                      else -> super.onOptionsItemSelected(item)
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/sendemail/MailAdapter.kt <<'EOF'
+          package com.sendemail
+
+          import android.view.LayoutInflater
+          import android.view.View
+          import android.view.ViewGroup
+          import android.widget.TextView
+          import androidx.recyclerview.widget.RecyclerView
+
+          class MailAdapter(
+              private val onClick: (MailHeader) -> Unit,
+          ) : RecyclerView.Adapter<MailAdapter.VH>() {
+
+              private val items = mutableListOf<MailHeader>()
+
+              fun submit(list: List<MailHeader>) {
+                  items.clear(); items.addAll(list); notifyDataSetChanged()
+              }
+
+              class VH(v: View) : RecyclerView.ViewHolder(v) {
+                  val from: TextView = v.findViewById(R.id.itemFrom)
+                  val subject: TextView = v.findViewById(R.id.itemSubject)
+                  val date: TextView = v.findViewById(R.id.itemDate)
+              }
+
+              override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+                  val v = LayoutInflater.from(parent.context)
+                      .inflate(R.layout.item_mail, parent, false)
+                  return VH(v)
+              }
+
+              override fun onBindViewHolder(holder: VH, position: Int) {
+                  val m = items[position]
+                  holder.from.text = m.from
+                  holder.subject.text = m.subject.ifBlank { "(无主题)" }
+                  holder.date.text = m.date
+                  holder.itemView.setOnClickListener { onClick(m) }
+              }
+
+              override fun getItemCount() = items.size
+          }
+          EOF
+
+          cat > app/src/main/java/com/sendemail/MailDetailActivity.kt <<'EOF'
+          package com.sendemail
+
+          import android.os.Bundle
+          import android.view.View
+          import android.widget.ProgressBar
+          import android.widget.TextView
+          import androidx.appcompat.app.AppCompatActivity
+          import com.google.android.material.appbar.MaterialToolbar
+          import kotlin.concurrent.thread
+
+          class MailDetailActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_detail)
+
+                  val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
+                  setSupportActionBar(toolbar)
+                  supportActionBar?.setDisplayHomeAsUpEnabled(true)
+                  title = intent.getStringExtra("subject") ?: "邮件"
+
+                  val fromView = findViewById<TextView>(R.id.detailFrom)
+                  val dateView = findViewById<TextView>(R.id.detailDate)
+                  val bodyView = findViewById<TextView>(R.id.detailBody)
+                  val progress = findViewById<ProgressBar>(R.id.progress)
+
+                  fromView.text = intent.getStringExtra("from") ?: ""
+                  dateView.text = intent.getStringExtra("date") ?: ""
+                  val uid = intent.getStringExtra("uid") ?: ""
+
+                  progress.visibility = View.VISIBLE
+                  thread {
+                      val body = try {
+                          ImapClient.fetchBody(Prefs.load(this).user, Prefs.load(this).pass, uid).body
+                      } catch (e: Exception) {
+                          "加载失败: ${e.message}"
+                      }
+                      runOnUiThread {
+                          progress.visibility = View.GONE
+                          bodyView.text = body
+                      }
+                  }
+              }
+
+              override fun onSupportNavigateUp(): Boolean {
+                  finish(); return true
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/sendemail/ComposeActivity.kt <<'EOF'
+          package com.sendemail
+
+          import android.os.Bundle
+          import android.widget.Toast
+          import androidx.appcompat.app.AppCompatActivity
+          import com.google.android.material.appbar.MaterialToolbar
+          import com.google.android.material.button.MaterialButton
+          import com.google.android.material.textfield.TextInputEditText
+          import kotlin.concurrent.thread
+
+          class ComposeActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_compose)
+
+                  val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
+                  setSupportActionBar(toolbar)
+                  supportActionBar?.setDisplayHomeAsUpEnabled(true)
+                  title = "写邮件"
+
+                  val to = findViewById<TextInputEditText>(R.id.toInput)
+                  val subject = findViewById<TextInputEditText>(R.id.subjectInput)
+                  val body = findViewById<TextInputEditText>(R.id.bodyInput)
+                  val sendBtn = findViewById<MaterialButton>(R.id.sendBtn)
+
+                  sendBtn.setOnClickListener {
+                      val t = to.text.toString().trim()
+                      val s = subject.text.toString()
+                      val b = body.text.toString()
+                      if (t.isBlank()) {
+                          Toast.makeText(this, "请填写收件人", Toast.LENGTH_SHORT).show()
+                          return@setOnClickListener
+                      }
+                      sendBtn.isEnabled = false
+                      sendBtn.text = "发送中..."
+                      val acc = Prefs.load(this)
+                      thread {
+                          val result = try {
+                              SmtpClient.send(acc.user, acc.pass, t, s, b)
+                              "发送成功"
+                          } catch (e: Exception) {
+                              "失败: ${e.message}"
+                          }
+                          runOnUiThread {
+                              Toast.makeText(this, result, Toast.LENGTH_LONG).show()
+                              if (result == "发送成功") finish()
+                              else {
+                                  sendBtn.isEnabled = true
+                                  sendBtn.text = "发送"
+                              }
+                          }
+                      }
+                  }
+              }
+
+              override fun onSupportNavigateUp(): Boolean {
+                  finish(); return true
+              }
+          }
+          EOF
+
+          cat > app/src/main/res/layout/activity_login.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:fillViewport="true">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:gravity="center_vertical"
+                  android:padding="32dp">
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="send.email"
+                      android:textSize="32sp"
+                      android:textStyle="bold"
+                      android:textColor="?attr/colorPrimary"
+                      android:layout_marginBottom="8dp"/>
+
+                  <TextView
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:text="126 邮箱客户端"
+                      android:textSize="14sp"
+                      android:textColor="?attr/colorOnSurfaceVariant"
+                      android:layout_marginBottom="48dp"/>
+
+                  <com.google.android.material.textfield.TextInputLayout
+                      android:id="@+id/userLayout"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="邮箱地址"
+                      style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                      android:layout_marginBottom="16dp">
+                      <com.google.android.material.textfield.TextInputEditText
+                          android:id="@+id/userInput"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:inputType="textEmailAddress"/>
+                  </com.google.android.material.textfield.TextInputLayout>
+
+                  <com.google.android.material.textfield.TextInputLayout
+                      android:id="@+id/passLayout"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="授权码"
+                      style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                      android:layout_marginBottom="32dp">
+                      <com.google.android.material.textfield.TextInputEditText
+                          android:id="@+id/passInput"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:inputType="textPassword"/>
+                  </com.google.android.material.textfield.TextInputLayout>
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/loginBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="56dp"
+                      android:text="登录"
+                      android:textSize="16sp"/>
+              </LinearLayout>
+          </ScrollView>
+          EOF
+
+          cat > app/src/main/res/layout/activity_inbox.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical">
+
+              <com.google.android.material.appbar.MaterialToolbar
+                  android:id="@+id/toolbar"
+                  android:layout_width="match_parent"
+                  android:layout_height="?attr/actionBarSize"
+                  android:background="?attr/colorPrimaryContainer"
+                  app:titleTextColor="?attr/colorOnPrimaryContainer"
+                  xmlns:app="http://schemas.android.com/apk/res-auto"/>
+
+              <FrameLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1">
+
+                  <androidx.recyclerview.widget.RecyclerView
+                      android:id="@+id/list"
+                      android:layout_width="match_parent"
+                      android:layout_height="match_parent"
+                      android:clipToPadding="false"
+                      android:paddingTop="8dp"
+                      android:paddingBottom="8dp"/>
+
+                  <ProgressBar
+                      android:id="@+id/progress"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_gravity="center"
+                      android:visibility="gone"/>
+
+                  <TextView
+                      android:id="@+id/empty"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_gravity="center"
+                      android:text="暂无邮件"
+                      android:textColor="?attr/colorOnSurfaceVariant"
+                      android:visibility="gone"/>
+              </FrameLayout>
+          </LinearLayout>
+          EOF
+
+          cat > app/src/main/res/layout/item_mail.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <com.google.android.material.card.MaterialCardView
+              xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginHorizontal="12dp"
+              android:layout_marginVertical="6dp"
+              app:cardCornerRadius="12dp"
+              app:cardElevation="1dp"
+              style="@style/Widget.Material3.CardView.Elevated">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="16dp">
+
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="horizontal">
+                      <TextView
+                          android:id="@+id/itemFrom"
+                          android:layout_width="0dp"
+                          android:layout_height="wrap_content"
+                          android:layout_weight="1"
+                          android:textSize="14sp"
+                          android:textStyle="bold"
+                          android:maxLines="1"
+                          android:ellipsize="end"
+                          android:textColor="?attr/colorOnSurface"/>
+                      <TextView
+                          android:id="@+id/itemDate"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:textSize="12sp"
+                          android:textColor="?attr/colorOnSurfaceVariant"/>
+                  </LinearLayout>
+
+                  <TextView
+                      android:id="@+id/itemSubject"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="4dp"
+                      android:textSize="15sp"
+                      android:maxLines="1"
+                      android:ellipsize="end"
+                      android:textColor="?attr/colorOnSurface"/>
+              </LinearLayout>
+          </com.google.android.material.card.MaterialCardView>
+          EOF
+
+          cat > app/src/main/res/layout/activity_detail.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical">
+
+              <com.google.android.material.appbar.MaterialToolbar
+                  android:id="@+id/toolbar"
+                  android:layout_width="match_parent"
+                  android:layout_height="?attr/actionBarSize"
+                  android:background="?attr/colorPrimaryContainer"
+                  app:titleTextColor="?attr/colorOnPrimaryContainer"/>
+
+              <ScrollView
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1">
+                  <LinearLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:orientation="vertical"
+                      android:padding="20dp">
+
+                      <TextView
+                          android:id="@+id/detailFrom"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:textSize="16sp"
+                          android:textStyle="bold"
+                          android:textColor="?attr/colorOnSurface"/>
+                      <TextView
+                          android:id="@+id/detailDate"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:textSize="12sp"
+                          android:textColor="?attr/colorOnSurfaceVariant"
+                          android:layout_marginTop="4dp"/>
+                      <View
+                          android:layout_width="match_parent"
+                          android:layout_height="1dp"
+                          android:background="?attr/colorSurfaceVariant"
+                          android:layout_marginVertical="16dp"/>
+                      <TextView
+                          android:id="@+id/detailBody"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:textSize="15sp"
+                          android:lineSpacingExtra="4dp"
+                          android:textColor="?attr/colorOnSurface"/>
+                  </LinearLayout>
+              </ScrollView>
+
+              <ProgressBar
+                  android:id="@+id/progress"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="center"
+                  android:visibility="gone"/>
+          </LinearLayout>
+          EOF
+
+          cat > app/src/main/res/layout/activity_compose.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:app="http://schemas.android.com/apk/res-auto"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:orientation="vertical">
+
+              <com.google.android.material.appbar.MaterialToolbar
+                  android:id="@+id/toolbar"
+                  android:layout_width="match_parent"
+                  android:layout_height="?attr/actionBarSize"
+                  android:background="?attr/colorPrimaryContainer"
+                  app:titleTextColor="?attr/colorOnPrimaryContainer"/>
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent"
+                  android:orientation="vertical"
+                  android:padding="20dp">
+
+                  <com.google.android.material.textfield.TextInputLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="收件人"
+                      style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                      android:layout_marginBottom="12dp">
+                      <com.google.android.material.textfield.TextInputEditText
+                          android:id="@+id/toInput"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"
+                          android:inputType="textEmailAddress"/>
+                  </com.google.android.material.textfield.TextInputLayout>
+
+                  <com.google.android.material.textfield.TextInputLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:hint="主题"
+                      style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                      android:layout_marginBottom="12dp">
+                      <com.google.android.material.textfield.TextInputEditText
+                          android:id="@+id/subjectInput"
+                          android:layout_width="match_parent"
+                          android:layout_height="wrap_content"/>
+                  </com.google.android.material.textfield.TextInputLayout>
+
+                  <com.google.android.material.textfield.TextInputLayout
+                      android:layout_width="match_parent"
+                      android:layout_height="0dp"
+                      android:layout_weight="1"
+                      android:hint="正文"
+                      style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                      android:layout_marginBottom="16dp">
+                      <com.google.android.material.textfield.TextInputEditText
+                          android:id="@+id/bodyInput"
+                          android:layout_width="match_parent"
+                          android:layout_height="match_parent"
+                          android:gravity="top"
+                          android:inputType="textMultiLine"/>
+                  </com.google.android.material.textfield.TextInputLayout>
+
+                  <com.google.android.material.button.MaterialButton
+                      android:id="@+id/sendBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="56dp"
+                      android:text="发送"
+                      android:textSize="16sp"/>
+              </LinearLayout>
+          </LinearLayout>
+          EOF
+
+      - name: Generate gradle wrapper
+        working-directory: app/sendemail
+        run: gradle wrapper --gradle-version 8.2
+
+      - name: Grant execute permission for gradlew
+        working-directory: app/sendemail
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        working-directory: app/sendemail
+        run: ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: send-email-debug
+          path: app/sendemail/app/build/outputs/apk/debug/*.apk
