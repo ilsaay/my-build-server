@@ -59,7 +59,7 @@ jobs:
           mkdir -p work
           cd work
 
-          URL="https://download.freebsd.org/releases/${FREEBSD_ARCH}/${FREEBSD_VERSION}-RELEASE/FreeBSD-${FREEBSD_VERSION}-RELEASE-${FREEBSD_ARCH}.iso"
+          URL="https://download.freebsd.org/releases/ISO-IMAGES/14.3/FreeBSD-14.3-RELEASE-amd64-disc1.iso"
 
           echo "Downloading:"
           echo "$URL"
