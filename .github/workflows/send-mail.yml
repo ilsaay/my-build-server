@@ -19,7 +19,7 @@ jobs:
           password: ${{ secrets.MAIL_PASSWORD }}
 
           from: ${{ secrets.MAIL_USERNAME }}
-          to: "你的收件邮箱@example.com"
+          to: "qiqihnb@gmail.com"
 
           subject: "GitHub Actions 测试邮件"
 
