@@ -1,32 +1,71 @@
-name: Send 126 Email
+name: Generate And Send Email
 
 on:
   workflow_dispatch:
 
 jobs:
-  send-mail:
+  send-email:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send Email
-        uses: dawidd6/action-send-mail@v6
-        with:
-          server_address: smtp.126.com
-          server_port: 465
-          secure: true
+      - name: Generate and send email
+        env:
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import smtplib
+          from datetime import datetime, timezone, timedelta
+          from email.mime.text import MIMEText
 
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
+          username = os.environ["MAIL_USERNAME"]
+          password = os.environ["MAIL_PASSWORD"]
+          recipient = os.environ["MAIL_TO"]
 
-          from: ${{ secrets.MAIL_USERNAME }}
-          to: ${{ secrets.MAIL_TO }}
+          # 中国/北京时间 UTC+8
+          tz = timezone(timedelta(hours=8))
+          now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
-          subject: "GitHub Actions 测试邮件"
+          repository = os.environ.get("GITHUB_REPOSITORY", "")
+          branch = os.environ.get("GITHUB_REF_NAME", "")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
 
-          body: |
-            你好！
+          subject = "GitHub Actions 运行报告"
 
-            这是一封由 GitHub Actions
-            通过 126 邮箱 SMTP 自动发送的邮件。
+          body = f"""你好！
 
-            邮件正文可以直接在这里修改。
+          这是一封由 GitHub Actions 自动生成并发送的邮件。
+
+          ==============================
+          GitHub Actions 运行报告
+          ==============================
+
+          仓库：{repository}
+          分支：{branch}
+          运行编号：{run_id}
+          运行时间：{now}
+
+          状态：成功
+
+          ==============================
+          """
+
+          msg = MIMEText(body, "plain", "utf-8")
+          msg["Subject"] = subject
+          msg["From"] = username
+          msg["To"] = recipient
+
+          print("正在连接 126 SMTP...")
+
+          with smtplib.SMTP_SSL("smtp.126.com", 465, timeout=20) as smtp:
+              smtp.login(username, password)
+              smtp.sendmail(
+                  username,
+                  [recipient],
+                  msg.as_string()
+              )
+
+          print("邮件发送成功！")
+          PY
