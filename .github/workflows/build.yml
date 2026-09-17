@@ -18,14 +18,13 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # REAL FREEBSD BUILD ENVIRONMENT
+      # FreeBSD VM
       #
       # release.sh MUST run inside FreeBSD.
-      # It must NOT be executed directly on Ubuntu.
       # ============================================================
       - name: Build inside FreeBSD 14.3
         id: freebsd
-        uses: vmactions/freebsd-vm@v1.2.4
+        uses: vmactions/freebsd-vm@v1
         with:
           release: "14.3"
           arch: "amd64"
@@ -36,6 +35,9 @@ jobs:
           usesh: true
           copyback: true
 
+          # --------------------------------------------------------
+          # FreeBSD package preparation
+          # --------------------------------------------------------
           prepare: |
             set -eux
 
@@ -45,7 +47,13 @@ jobs:
 
             freebsd-version
             uname -a
+
+            echo
+            echo "CPU:"
             sysctl -n hw.ncpu
+
+            echo
+            echo "Disk:"
             df -h
 
             echo
@@ -53,14 +61,10 @@ jobs:
             echo " Configure pkg"
             echo "========================================"
 
-            # ------------------------------------------------------
-            # FreeBSD 14.3 is EOL, while the FreeBSD:14 package
-            # repository now contains packages built with a newer
-            # OSVERSION.
+            # FreeBSD 14.3 is older than the current FreeBSD:14
+            # package OSVERSION.
             #
-            # Allow pkg to use the FreeBSD:14 packages.
-            # ------------------------------------------------------
-
+            # Allow pkg to use the available FreeBSD:14 packages.
             export IGNORE_OSVERSION=YES
             export ASSUME_ALWAYS_YES=yes
 
@@ -81,6 +85,11 @@ jobs:
             echo " Install build dependencies"
             echo "========================================"
 
+            # NOTE:
+            # xz is intentionally NOT installed here.
+            # FreeBSD already provides the required xz functionality
+            # for the release build system.
+
             IGNORE_OSVERSION=YES \
             ASSUME_ALWAYS_YES=yes \
             pkg install -y \
@@ -89,7 +98,6 @@ jobs:
               curl \
               wget \
               rsync \
-              xz \
               sudo \
               bash \
               gmake
@@ -103,9 +111,22 @@ jobs:
 
             echo
             echo "========================================"
+            echo " Check required base commands"
+            echo "========================================"
+
+            command -v sh
+            command -v make
+            command -v tar
+            command -v xz || true
+
+            echo
+            echo "========================================"
             echo " Prepare completed"
             echo "========================================"
 
+          # ========================================================
+          # Actual FreeBSD release build
+          # ========================================================
           run: |
             set -eux
 
@@ -168,37 +189,54 @@ jobs:
             # FreeBSD 14.3 Release Configuration
             # ========================================================
 
-            # Release target
+            # --------------------------------------------------------
+            # Target architecture
+            # --------------------------------------------------------
+
             TARGET="amd64"
             TARGET_ARCH="amd64"
 
+            # --------------------------------------------------------
             # Kernel
+            # --------------------------------------------------------
+
             KERNEL="GENERIC"
 
-            # Source tree already exists
+            # --------------------------------------------------------
+            # Source / ports / documentation
+            # --------------------------------------------------------
+
+            # Source tree already exists.
             NOGIT=1
 
-            # Do not build ports tree
+            # Do not include ports tree.
             NOPORTS=1
 
-            # Do not include FreeBSD source
+            # Do not distribute FreeBSD source.
             NOSRC=1
 
-            # Do not build documentation
+            # Do not build documentation.
             NODOC=1
 
-            # Build VM images
+            # --------------------------------------------------------
+            # VM images
+            # --------------------------------------------------------
+
             WITH_VMIMAGES=1
 
-            # VM image formats
+            # Generate RAW and QCOW2 images.
             VMFORMATS="raw qcow2"
 
-            # VM disk size
-            VMSIZE="20G"
+            # VM disk size.
+            VMSIZE="20g"
 
+            # --------------------------------------------------------
             # Build parallelism
+            # --------------------------------------------------------
+
             WORLD_FLAGS="-j4"
             KERNEL_FLAGS="-j4"
+            RELEASE_FLAGS="-j4"
             EOF
 
             echo
@@ -209,7 +247,7 @@ jobs:
 
             echo
             echo "========================================"
-            echo " Check release.sh"
+            echo " Check release.sh syntax"
             echo "========================================"
 
             /bin/sh -n release/release.sh
@@ -232,7 +270,9 @@ jobs:
             echo "========================================"
 
             echo
-            echo "Searching for release files..."
+            echo "========================================"
+            echo " Search release output"
+            echo "========================================"
 
             find "$GITHUB_WORKSPACE/work" \
               -type f \
@@ -274,7 +314,7 @@ jobs:
               || true
 
       # ============================================================
-      # Show output on Ubuntu
+      # Find files on GitHub runner
       # ============================================================
       - name: Find build output
         shell: bash
@@ -296,7 +336,7 @@ jobs:
             | sort
 
       # ============================================================
-      # ISO
+      # ISO artifact
       # ============================================================
       - name: Upload FreeBSD ISO
         uses: actions/upload-artifact@v4
@@ -308,7 +348,7 @@ jobs:
           compression-level: 0
 
       # ============================================================
-      # RAW IMG
+      # RAW IMG artifact
       # ============================================================
       - name: Upload FreeBSD IMG
         uses: actions/upload-artifact@v4
@@ -320,7 +360,7 @@ jobs:
           compression-level: 0
 
       # ============================================================
-      # QCOW2
+      # QCOW2 artifact
       # ============================================================
       - name: Upload FreeBSD QCOW2
         uses: actions/upload-artifact@v4
