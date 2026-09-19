@@ -1,0 +1,44 @@
+name: Build Go 1.15 Windows x64 (No Download)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-go115-windows:
+    runs-on: windows-2019
+
+    steps:
+      - name: Checkout
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/ilsaay/my-build-server.git .
+
+      - name: Download Go 1.15
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://go.dev/dl/go1.15.15.windows-amd64.zip" -OutFile "go1.15.zip"
+          Expand-Archive go1.15.zip -DestinationPath C:\go1.15
+
+      - name: Build no-download exe
+        shell: cmd
+        run: |
+          set PATH=C:\go1.15\go\bin;%PATH%
+          set CGO_ENABLED=0
+          set GOOS=windows
+          set GOARCH=amd64
+          set GOPROXY=off
+          set GOFLAGS=-mod=vendor
+          go build -tags "netgo osusergo" -ldflags "-s -w" -o app.exe main.go
+
+      - name: Verify
+        shell: pwsh
+        run: |
+          Get-Item app.exe | Format-List
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path app.exe -DestinationPath app-win-x64.zip -Force
+          Get-Item app-win-x64.zip | Format-List
