@@ -1,4 +1,4 @@
-name: Generate And Send Email
+name: send-mail.yml
 
 on:
   workflow_dispatch:
