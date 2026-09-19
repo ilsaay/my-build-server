@@ -1,0 +1,63 @@
+name: Build Minimal PHP 7.2 for Windows
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-php72-windows:
+    runs-on: windows-2019
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Download PHP 7.2 source
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.php.net/distributions/php-7.2.34.tar.gz" -OutFile "php-7.2.34.tar.gz"
+          tar -xzf php-7.2.34.tar.gz
+
+      - name: Download php-sdk
+        shell: pwsh
+        run: |
+          git clone --branch php-7.2.34 --depth 1 https://github.com/php/php-sdk-binary-tools.git php-sdk
+
+      - name: Prepare build environment
+        shell: pwsh
+        run: |
+          cd php-sdk
+          .\phpsdk-vc15-x64.bat
+          # 该脚本会设置环境变量，但 GitHub Actions 每步独立，需在下一步重新调用
+
+      - name: Configure PHP
+        shell: pwsh
+        run: |
+          cd php-sdk
+          cmd /c "phpsdk-vc15-x64.bat && cd ..\php-7.2.34 && buildconf.bat && configure.bat --disable-all --enable-cli --enable-opcache --with-libxml --enable-mbstring --enable-json --without-mcrypt --without-mysql --disable-xmlrpc --disable-wddx --without-imap --disable-ftp --disable-sysvmsg --disable-sysvsem --disable-sysvshm --without-tidy --without-snmp --without-ldap --disable-soap --without-curl --without-openssl --without-gd --without-zip --without-pdo-pgsql --disable-zts"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cd php-sdk
+          cmd /c "phpsdk-vc15-x64.bat && cd ..\php-7.2.34 && nmake"
+
+      - name: Collect build output
+        shell: pwsh
+        run: |
+          mkdir php72-win
+          Copy-Item php-7.2.34\x64\Release\php.exe php72-win\ -ErrorAction SilentlyContinue
+          Copy-Item php-7.2.34\x64\Release\php7.dll php72-win\ -ErrorAction SilentlyContinue
+          Copy-Item php-7.2.34\php.ini-production php72-win\php.ini -ErrorAction SilentlyContinue
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: php72-win-minimal
+          path: php72-win
