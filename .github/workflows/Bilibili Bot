@@ -1,0 +1,73 @@
+name: Build Bilibili Bot
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'java/bilibili/**'
+      - '.github/workflows/build-bilibili.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 编译 Java 源码
+        working-directory: java/bilibili
+        run: |
+          mkdir -p build
+          javac -encoding UTF-8 -d build Main.java
+
+      - name: 打包为可执行 JAR
+        working-directory: java/bilibili
+        run: |
+          cd build
+          jar cfe ../bilibili-bot.jar Main Main.class
+          cd ..
+          echo "已生成: $(ls -lh bilibili-bot.jar)"
+
+      - name: 上传 JAR 为构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: bilibili-bot-jar
+          path: java/bilibili/bilibili-bot.jar
+
+      - name: 读取版本号
+        id: version
+        run: |
+          echo "tag=v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+
+      - name: 上传到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Bilibili Bot ${{ steps.version.outputs.tag }}"
+          body: |
+            ## B站直播弹幕机器人
+
+            自动构建于 ${{ github.sha }}
+
+            ### 使用方法
+            1. 下载 `bilibili-bot.jar`
+            2. 在同目录创建 `bilibili_config.ini`（参考下方模板）
+            3. 运行 `java -jar bilibili-bot.jar`
+
+            ### 配置文件模板
+            ```ini
+            SESSDATA=你的SESSDATA
+            bili_jct=你的bili_jct
+            DedeUserID=你的UID
+            ROOM_ID=123456
+            KEYWORD_你好=你好呀~
