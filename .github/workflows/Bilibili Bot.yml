@@ -1,4 +1,4 @@
-name: Build Bilibili Bot to JAR
+name: bilibili bot .yml
 
 on:
   push:
