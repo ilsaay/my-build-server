@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-php72-windows:
-    runs-on: windows-2025
+    runs-on: windows-2022
 
     steps:
       # 1. 拉取你自己的仓库（不用 actions/checkout）
@@ -15,16 +15,17 @@ jobs:
         shell: pwsh
         run: |
           git clone --depth 1 https://github.com/ilsaay/my-build-server.git .
-          # 如果 PHP 源码不在这个仓库，就改成 clone 对应仓库
+          # 如果 PHP 源码不在这个仓库，改成 clone 对应仓库
 
-      # 2. 下载 php-sdk（构建工具，不是 PHP 源码）
+      # 2. 下载 php-sdk（不指定分支，clone 默认分支）
       - name: Download php-sdk
         shell: pwsh
         run: |
-          git clone --branch PHP-7.2 --depth 1 https://github.com/php/php-sdk-binary-tools.git php-sdk
-          # 如果 PHP-7.2 分支不存在，先跑：
-          # git ls-remote --heads https://github.com/php/php-sdk-binary-tools.git
-          # 找到实际分支名再替换
+          git clone --depth 1 https://github.com/php/php-sdk-binary-tools.git php-sdk
+          Write-Host "=== Remote branches ==="
+          git -C php-sdk ls-remote --heads https://github.com/php/php-sdk-binary-tools.git
+          Write-Host "=== Remote tags ==="
+          git -C php-sdk ls-remote --tags https://github.com/php/php-sdk-binary-tools.git
 
       # 3. 下载 PHP 7.2 源码
       - name: Download PHP 7.2 source
@@ -37,7 +38,8 @@ jobs:
       - name: Configure PHP
         shell: cmd
         run: |
-          call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VS_PATH=%%i
+          call "%VS_PATH%\VC\Auxiliary\Build\vcvars64.bat"
           cd php-sdk
           call phpsdk-vc15-x64.bat
           cd ..\php-7.2.34
@@ -73,7 +75,8 @@ jobs:
       - name: Build
         shell: cmd
         run: |
-          call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VS_PATH=%%i
+          call "%VS_PATH%\VC\Auxiliary\Build\vcvars64.bat"
           cd php-sdk
           call phpsdk-vc15-x64.bat
           cd ..\php-7.2.34
@@ -90,8 +93,7 @@ jobs:
           Compress-Archive -Path php72-win\* -DestinationPath php72-win.zip -Force
           Write-Host "Build output: php72-win.zip"
 
-      # 7. 保存产物（不用 actions/upload-artifact）
-      # 可选：把 zip 推到某个分支，或调 GitHub API 上传
+      # 7. 显示产物路径
       - name: Show artifact path
         shell: pwsh
         run: |
