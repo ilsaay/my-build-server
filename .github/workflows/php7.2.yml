@@ -1,4 +1,4 @@
-name: php7.2.yml
+name: php7.2,yml
 
 on:
   push:
@@ -10,54 +10,89 @@ jobs:
     runs-on: windows-2025
 
     steps:
+      # 1. 拉取你自己的仓库（不用 actions/checkout）
       - name: Checkout
-        uses: actions/checkout@v4
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/ilsaay/my-build-server.git .
+          # 如果 PHP 源码不在这个仓库，就改成 clone 对应仓库
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+      # 2. 下载 php-sdk（构建工具，不是 PHP 源码）
+      - name: Download php-sdk
+        shell: pwsh
+        run: |
+          git clone --branch PHP-7.2 --depth 1 https://github.com/php/php-sdk-binary-tools.git php-sdk
+          # 如果 PHP-7.2 分支不存在，先跑：
+          # git ls-remote --heads https://github.com/php/php-sdk-binary-tools.git
+          # 找到实际分支名再替换
 
+      # 3. 下载 PHP 7.2 源码
       - name: Download PHP 7.2 source
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://www.php.net/distributions/php-7.2.34.tar.gz" -OutFile "php-7.2.34.tar.gz"
           tar -xzf php-7.2.34.tar.gz
 
-      - name: Download php-sdk
-        shell: pwsh
-        run: |
-          git clone --branch php-7.2.34 --depth 1 https://github.com/php/php-sdk-binary-tools.git php-sdk
-
-      - name: Prepare build environment
-        shell: pwsh
-        run: |
-          cd php-sdk
-          .\phpsdk-vc15-x64.bat
-          # 该脚本会设置环境变量，但 GitHub Actions 每步独立，需在下一步重新调用
-
+      # 4. 配置 PHP（裁剪扩展）
       - name: Configure PHP
-        shell: pwsh
+        shell: cmd
         run: |
+          call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cd php-sdk
-          cmd /c "phpsdk-vc15-x64.bat && cd ..\php-7.2.34 && buildconf.bat && configure.bat --disable-all --enable-cli --enable-opcache --with-libxml --enable-mbstring --enable-json --without-mcrypt --without-mysql --disable-xmlrpc --disable-wddx --without-imap --disable-ftp --disable-sysvmsg --disable-sysvsem --disable-sysvshm --without-tidy --without-snmp --without-ldap --disable-soap --without-curl --without-openssl --without-gd --without-zip --without-pdo-pgsql --disable-zts"
+          call phpsdk-vc15-x64.bat
+          cd ..\php-7.2.34
+          call buildconf.bat
+          call configure.bat ^
+            --disable-all ^
+            --enable-cli ^
+            --enable-opcache ^
+            --with-libxml ^
+            --enable-mbstring ^
+            --enable-json ^
+            --without-mcrypt ^
+            --without-mysql ^
+            --disable-xmlrpc ^
+            --disable-wddx ^
+            --without-imap ^
+            --disable-ftp ^
+            --disable-sysvmsg ^
+            --disable-sysvsem ^
+            --disable-sysvshm ^
+            --without-tidy ^
+            --without-snmp ^
+            --without-ldap ^
+            --disable-soap ^
+            --without-curl ^
+            --without-openssl ^
+            --without-gd ^
+            --without-zip ^
+            --without-pdo-pgsql ^
+            --disable-zts
 
+      # 5. 编译
       - name: Build
-        shell: pwsh
+        shell: cmd
         run: |
+          call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cd php-sdk
-          cmd /c "phpsdk-vc15-x64.bat && cd ..\php-7.2.34 && nmake"
+          call phpsdk-vc15-x64.bat
+          cd ..\php-7.2.34
+          nmake
 
-      - name: Collect build output
+      # 6. 收集产物
+      - name: Collect output
         shell: pwsh
         run: |
-          mkdir php72-win
+          New-Item -ItemType Directory -Force -Path php72-win | Out-Null
           Copy-Item php-7.2.34\x64\Release\php.exe php72-win\ -ErrorAction SilentlyContinue
           Copy-Item php-7.2.34\x64\Release\php7.dll php72-win\ -ErrorAction SilentlyContinue
           Copy-Item php-7.2.34\php.ini-production php72-win\php.ini -ErrorAction SilentlyContinue
+          Compress-Archive -Path php72-win\* -DestinationPath php72-win.zip -Force
+          Write-Host "Build output: php72-win.zip"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: php72-win-minimal
-          path: php72-win
+      # 7. 保存产物（不用 actions/upload-artifact）
+      # 可选：把 zip 推到某个分支，或调 GitHub API 上传
+      - name: Show artifact path
+        shell: pwsh
+        run: |
+          Get-Item php72-win.zip | Format-List
