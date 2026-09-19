@@ -1,14 +1,16 @@
-name: Compile Bilibili Danmaku Bot
+name: Build Bilibili Bot to JAR
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'java/bilibili/**'
   workflow_dispatch: # 允许手动触发工作流
 
 jobs:
   build:
-    name: Build and Verify Compatibility
+    name: Build Executable JAR
     runs-on: ubuntu-latest
 
     steps:
@@ -16,20 +18,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置 Java 8 环境 (使用 Java 8 编译可确保代码没有使用任何高版本语法，完美向下兼容)
+      # 2. 设置 Java 8 环境 (确保向下兼容)
       - name: Set up JDK 8
         uses: actions/setup-java@v4
         with:
           java-version: '8'
           distribution: 'temurin'
 
-      # 3. 智能查找并编译 (解决路径和大小写问题)
-      - name: Find and Compile Java file
+      # 3. 智能查找、自动修复大小写并编译打包
+      - name: Find, Fix Case, Compile and Package JAR
         run: |
           echo "=== 当前仓库文件结构 ==="
           find . -type f -name "*.java"
           
-          # 自动查找名为 Bilibili.java 或 bilibili.java 的文件 (忽略大小写查找)
+          # 自动查找名为 Bilibili.java 或 bilibili.java 的文件 (忽略大小写)
           JAVA_FILE=$(find . -type f -iname "bilibili.java" | head -n 1)
           
           if [ -z "$JAVA_FILE" ]; then
@@ -39,19 +41,37 @@ jobs:
           
           echo "找到 Java 文件: $JAVA_FILE"
           
+          # 【自动容错】强制重命名为大写 Bilibili.java，解决 Windows Git 忽略大小写的问题
+          DIR=$(dirname "$JAVA_FILE")
+          if [ "$JAVA_FILE" != "$DIR/Bilibili.java" ]; then
+            echo "⚠️ 检测到文件名大小写不正确，正在自动修正为 Bilibili.java ..."
+            mv "$JAVA_FILE" "$DIR/Bilibili.java"
+            JAVA_FILE="$DIR/Bilibili.java"
+            echo "✅ 文件名已修正"
+          fi
+          
           # 创建输出目录
           mkdir -p out
           
-          # 编译代码 (强制 UTF-8 编码)
+          # 编译代码 (强制 UTF-8 编码，输出到 out 目录)
           echo "开始编译..."
           javac -encoding UTF-8 -d out "$JAVA_FILE"
+          echo "✅ 编译成功！"
           
-          echo "✅ 编译成功！已验证代码兼容 Java 8 及以上所有版本。"
+          # 打包为可执行 JAR 文件
+          # c: 创建, f: 指定文件名, e: 指定入口 Main-Class
+          echo "正在打包 JAR..."
+          jar cfe out/bilibili-bot.jar Bilibili -C out .
+          echo "✅ JAR 打包成功: out/bilibili-bot.jar"
+          
+          # 验证 JAR 文件
+          ls -lh out/bilibili-bot.jar
 
-      # 4. 上传编译产物
-      - name: Upload compiled artifact
+      # 4. 上传打包好的 JAR 文件
+      - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bilibili-bot-compiled
-          path: out/
-          retention-days: 7
+          name: bilibili-bot-executable
+          path: out/bilibili-bot.jar
+          retention-days: 30
+          if-no-files-found: error
