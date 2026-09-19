@@ -1,4 +1,4 @@
-name: Build JAR
+name: java.yml
 
 on:
   push:
