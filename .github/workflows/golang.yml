@@ -17,14 +17,13 @@ jobs:
           Invoke-WebRequest -Uri "https://go.dev/dl/go1.15.15.windows-amd64.zip" -OutFile "go1.15.zip"
           Expand-Archive go1.15.zip -DestinationPath C:\go1.15
 
-      # 2. 拉取要编译的 Go 源码（改成你自己的源码仓库）
+      # 2. 拉取 Go 源码（改成真实仓库地址！）
       - name: Clone Go source
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/ilsaay/your-go-source.git src
-          # 如果源码在子目录，后面 cd 进去
+          git clone --depth 1 https://github.com/ilsaay/真实仓库名.git src
 
-      # 3. 查看源码结构（确认 main.go / go.mod 在哪）
+      # 3. 查看源码结构
       - name: Inspect source
         shell: cmd
         run: |
@@ -32,7 +31,7 @@ jobs:
           dir /s /b *.go
           dir /s /b go.mod
 
-      # 4. 编译：裁剪 + 关风险 + 禁止下载
+      # 4. 编译
       - name: Build no-download exe
         shell: cmd
         run: |
@@ -44,7 +43,7 @@ jobs:
           set GO111MODULE=on
 
           cd src
-          rem 如果 go.mod 在根目录，用 .；否则 cd 到 main.go 所在目录
+          rem 如果 main.go/go.mod 在 src 根目录：
           go build -tags "netgo osusergo" -ldflags "-s -w" -o ..\app.exe .
 
       # 5. 验证
@@ -59,19 +58,30 @@ jobs:
         run: |
           Compress-Archive -Path app.exe -DestinationPath app-win-x64.zip -Force
 
-      # 7. 上传 exe 到 GitHub Release 或 Artifact
-      # 方案 A：用 actions/upload-artifact（如果允许）
-      # - uses: actions/upload-artifact@v4
-      #   with:
-      #     name: app-win-x64
-      #     path: app-win-x64.zip
-
-      # 方案 B：上传到 Release（需要 GITHUB_TOKEN）
+      # 7. 上传产物（不能用 actions/upload-artifact，用 Release API）
       - name: Upload to Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 需要先装 gh CLI 或直接用 API
-          # 简单示例：把 zip 放到工作区，供后续手动下载
-          Get-Item app-win-x64.zip | Format-List
+          # 用 GitHub API 创建 release 并上传 zip
+          $tag = "build-${{ github.run_number }}"
+          $headers = @{
+            Authorization = "token $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+          }
+          $body = @{
+            tag_name = $tag
+            name = $tag
+            draft = $false
+            prerelease = $true
+          } | ConvertTo-Json
+
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/${{ github.repository }}/releases" `
+            -Method Post -Headers $headers -Body $body -ContentType "application/json"
+
+          $uploadUrl = $release.upload_url -replace '\{.*\}', ''
+          Invoke-RestMethod -Uri "$uploadUrl?name=app-win-x64.zip" `
+            -Method Post -Headers $headers -InFile "app-win-x64.zip" -ContentType "application/zip"
+
+          Write-Host "Uploaded to release $tag"
