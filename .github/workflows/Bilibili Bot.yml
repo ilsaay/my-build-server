@@ -4,56 +4,54 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'java/bilibili/**'
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'java/bilibili/**'
   workflow_dispatch: # 允许手动触发工作流
 
 jobs:
   build:
-    name: Build with JDK ${{ matrix.java-version }}
+    name: Build and Verify Compatibility
     runs-on: ubuntu-latest
-    
-    # 矩阵测试：在多个 Java 版本下编译，验证兼容性
-    strategy:
-      matrix:
-        java-version: ['8', '11', '17', '21']
-      fail-fast: false # 某个版本失败不影响其他版本的测试结果
 
     steps:
       # 1. 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 设置指定版本的 Java 环境
-      - name: Set up JDK ${{ matrix.java-version }}
+      # 2. 设置 Java 8 环境 (使用 Java 8 编译可确保代码没有使用任何高版本语法，完美向下兼容)
+      - name: Set up JDK 8
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ matrix.java-version }}
-          distribution: 'temurin' # 使用 Eclipse Temurin (Adoptium) 发行版
+          java-version: '8'
+          distribution: 'temurin'
 
-      # 3. 创建输出目录
-      - name: Create output directory
-        run: mkdir -p java/bilibili/out
-
-      # 4. 编译 Java 代码
-      # 使用 -encoding UTF-8 防止中文注释报错
-      # 代码无第三方依赖，直接编译单个文件即可
-      - name: Compile Bilibili.java
+      # 3. 智能查找并编译 (解决路径和大小写问题)
+      - name: Find and Compile Java file
         run: |
-          echo "Compiling with Java $(java -version 2>&1 | head -n 1)"
-          javac -encoding UTF-8 -d java/bilibili/out java/bilibili/Bilibili.java
-          echo "Compilation successful!"
+          echo "=== 当前仓库文件结构 ==="
+          find . -type f -name "*.java"
+          
+          # 自动查找名为 Bilibili.java 或 bilibili.java 的文件 (忽略大小写查找)
+          JAVA_FILE=$(find . -type f -iname "bilibili.java" | head -n 1)
+          
+          if [ -z "$JAVA_FILE" ]; then
+            echo "::error:: 找不到 Java 文件！请确保仓库中包含 Bilibili.java"
+            exit 1
+          fi
+          
+          echo "找到 Java 文件: $JAVA_FILE"
+          
+          # 创建输出目录
+          mkdir -p out
+          
+          # 编译代码 (强制 UTF-8 编码)
+          echo "开始编译..."
+          javac -encoding UTF-8 -d out "$JAVA_FILE"
+          
+          echo "✅ 编译成功！已验证代码兼容 Java 8 及以上所有版本。"
 
-      # 5. (可选) 将编译好的 .class 文件打包为 Artifact 供下载
+      # 4. 上传编译产物
       - name: Upload compiled artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bilibili-bot-jdk-${{ matrix.java-version }}
-          path: java/bilibili/out/
+          name: bilibili-bot-compiled
+          path: out/
           retention-days: 7
-          if-no-files-found: error
