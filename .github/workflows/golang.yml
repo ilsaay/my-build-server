@@ -10,31 +10,33 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      # 1. 拉取你自己的仓库（不用 actions/checkout）
+      # 1. 拉取仓库
       - name: Checkout
         shell: pwsh
         run: |
           git clone --depth 1 https://github.com/ilsaay/my-build-server.git .
 
-      # 2. 下载 Go 1.15 Windows x64
+      # 2. 列出仓库内容（关键：先看有什么）
+      - name: List repo contents
+        shell: cmd
+        run: |
+          echo === 当前目录 ===
+          cd
+          echo === 所有文件 ===
+          dir /s /b
+          echo === 查找 go 文件 ===
+          dir /s /b *.go
+          echo === 查找 go.mod ===
+          dir /s /b go.mod
+
+      # 3. 下载 Go 1.15
       - name: Download Go 1.15
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://go.dev/dl/go1.15.15.windows-amd64.zip" -OutFile "go1.15.zip"
           Expand-Archive go1.15.zip -DestinationPath C:\go1.15
 
-      # 3. 定位入口文件 + 确认工作目录
-      - name: Locate entrypoint
-        shell: cmd
-        run: |
-          echo === 当前目录 ===
-          cd
-          echo === 查找 main.go ===
-          dir /s /b main.go
-          echo === 查找 go.mod ===
-          dir /s /b go.mod
-
-      # 4. 编译：裁剪 + 关风险功能 + 禁止下载
+      # 4. 编译（等确认源码位置后再改这里）
       - name: Build no-download exe
         shell: cmd
         run: |
@@ -45,29 +47,10 @@ jobs:
           set GOPROXY=off
           set GO111MODULE=on
 
-          rem 如果项目有 go.mod，用 vendor 模式；没有就注释掉下面这行
-          set GOFLAGS=-mod=vendor
-
-          rem 构建当前目录的包（. 表示当前目录），不要写 main.go
+          rem 根据上一步的结果，改这里的路径
+          rem 如果 go.mod 在根目录：
           go build -tags "netgo osusergo" -ldflags "-s -w" -o app.exe .
 
-      # 5. 验证产物
-      - name: Verify
-        shell: pwsh
-        run: |
-          Get-Item app.exe | Format-List
-          .\app.exe --version 2>$null
-          if ($LASTEXITCODE -ne 0) { Write-Host "No --version flag, skipping" }
-
-      # 6. 打包
-      - name: Package
-        shell: pwsh
-        run: |
-          Compress-Archive -Path app.exe -DestinationPath app-win-x64.zip -Force
-          Get-Item app-win-x64.zip | Format-List
-
-      # 7. 显示产物路径
-      - name: Show artifact path
-        shell: pwsh
-        run: |
-          Write-Host "Artifact: $PWD\app-win-x64.zip"
+          rem 如果源码在子目录，比如 cmd\app：
+          rem cd cmd\app
+          rem go build -tags "netgo osusergo" -ldflags "-s -w" -o ..\..\app.exe .
