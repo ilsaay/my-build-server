@@ -24,26 +24,31 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: 检查源码文件
+      - name: 检查源码
         working-directory: java/bilibili
         run: |
           echo "=== 目录内容 ==="
           ls -la
-          # 只接受 Main.java (区分大小写)
-          if [ ! -f Main.java ]; then
-            echo "❌ 找不到 Main.java"
-            echo "你的类名是 public class Main, 文件名必须叫 Main.java"
-            echo "当前目录下的 .java 文件:"
-            ls *.java 2>/dev/null || echo "(没有 .java 文件)"
+          if [ ! -f main.java ]; then
+            echo "❌ 找不到 main.java"
             exit 1
           fi
-          echo "✅ 找到 Main.java"
+          # 检查类名是否为 main
+          CLASS=$(grep -oP 'public\s+class\s+\K\w+' main.java | head -1)
+          echo "public class: $CLASS"
+          if [ "$CLASS" != "main" ]; then
+            echo "❌ 类名是 '$CLASS', 但文件名是 main.java"
+            echo "Java 要求 public 类名与文件名一致 (区分大小写)"
+            echo "请把 'public class $CLASS' 改成 'public class main'"
+            exit 1
+          fi
+          echo "✅ 类名与文件名匹配"
 
       - name: 编译为 Java 8 兼容字节码
         working-directory: java/bilibili
         run: |
           mkdir -p build
-          javac --release 8 -encoding UTF-8 -d build Main.java
+          javac --release 8 -encoding UTF-8 -d build main.java
           echo "=== 编译产物 ==="
           find build -name '*.class'
 
@@ -51,7 +56,7 @@ jobs:
         working-directory: java/bilibili
         run: |
           cd build
-          MAJOR=$(od -An -tu1 -j6 -N2 Main.class | awk '{print $1*256+$2}')
+          MAJOR=$(od -An -tu1 -j6 -N2 main.class | awk '{print $1*256+$2}')
           echo "字节码主版本号: $MAJOR (52 = Java 8)"
           if [ "$MAJOR" -gt 52 ]; then
             echo "❌ 字节码版本过高, 不兼容 Java 8"
@@ -63,7 +68,7 @@ jobs:
         working-directory: java/bilibili
         run: |
           cd build
-          jar cfe ../bilibili-bot.jar Main Main.class
+          jar cfe ../bilibili-bot.jar main main.class
           cd ..
           echo "=== JAR 内容 ==="
           jar tf bilibili-bot.jar
@@ -75,9 +80,9 @@ jobs:
         working-directory: java/bilibili
         run: |
           MANIFEST=$(unzip -p bilibili-bot.jar META-INF/MANIFEST.MF)
-          if ! echo "$MANIFEST" | grep -q "Main-Class: Main"; then
-            echo "❌ 入口类错误! 期望 Main-Class: Main"
-            echo "$MANIFEST"
+          echo "$MANIFEST"
+          if ! echo "$MANIFEST" | grep -q "Main-Class: main"; then
+            echo "❌ 入口类错误! 期望 Main-Class: main"
             exit 1
           fi
           COUNT=$(jar tf bilibili-bot.jar | grep -c '\.class$')
@@ -108,8 +113,9 @@ jobs:
           body: |
             ## B站直播弹幕机器人
 
+            - 源码: `java/bilibili/main.java`
+            - 入口类: `main`
             - 字节码版本: Java 8 (兼容 JDK 8 ~ 21)
-            - 构建: ${{ github.sha }}
 
             ### 使用方法
             1. 下载 `bilibili-bot.jar`
