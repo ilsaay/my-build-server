@@ -1,4 +1,4 @@
-name: Build Minimal PHP 7.2 for Windows
+name: php7.2.yml
 
 on:
   push:
