@@ -1,84 +1,59 @@
-name: Build Bilibili Bot
+name: Compile Bilibili Danmaku Bot
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths:
       - 'java/bilibili/**'
-      - '.github/workflows/build-bilibili.yml'
-  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'java/bilibili/**'
+  workflow_dispatch: # 允许手动触发工作流
 
 jobs:
   build:
+    name: Build with JDK ${{ matrix.java-version }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    
+    # 矩阵测试：在多个 Java 版本下编译，验证兼容性
+    strategy:
+      matrix:
+        java-version: ['8', '11', '17', '21']
+      fail-fast: false # 某个版本失败不影响其他版本的测试结果
 
     steps:
-      - name: 检出代码
+      # 1. 检出代码
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 安装 JDK 21
+      # 2. 设置指定版本的 Java 环境
+      - name: Set up JDK ${{ matrix.java-version }}
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '21'
+          java-version: ${{ matrix.java-version }}
+          distribution: 'temurin' # 使用 Eclipse Temurin (Adoptium) 发行版
 
-      - name: 编译为 Java 8 兼容字节码
-        working-directory: java/bilibili
+      # 3. 创建输出目录
+      - name: Create output directory
+        run: mkdir -p java/bilibili/out
+
+      # 4. 编译 Java 代码
+      # 使用 -encoding UTF-8 防止中文注释报错
+      # 代码无第三方依赖，直接编译单个文件即可
+      - name: Compile Bilibili.java
         run: |
-          echo "=== 目录内容 ==="
-          ls -la
-          mkdir -p build
-          javac --release 8 -encoding UTF-8 -d build Main.java
-          echo "=== 编译产物 ==="
-          find build -name '*.class'
+          echo "Compiling with Java $(java -version 2>&1 | head -n 1)"
+          javac -encoding UTF-8 -d java/bilibili/out java/bilibili/Bilibili.java
+          echo "Compilation successful!"
 
-      - name: 验证字节码版本 (应为 52 = Java 8)
-        working-directory: java/bilibili
-        run: |
-          cd build
-          MAJOR=$(od -An -tu1 -j6 -N2 Main.class | awk '{print $1*256+$2}')
-          echo "字节码主版本号: $MAJOR (52 = Java 8)"
-          [ "$MAJOR" -gt 52 ] && echo "❌ 不兼容 Java 8" && exit 1
-          echo "✅ 兼容 Java 8+"
-
-      - name: 打包为可执行 JAR
-        working-directory: java/bilibili
-        run: |
-          cd build
-          jar cfe ../bilibili-bot.jar Main Main.class
-          cd ..
-          jar tf bilibili-bot.jar
-          unzip -p bilibili-bot.jar META-INF/MANIFEST.MF
-          ls -lh bilibili-bot.jar
-
-      - name: 上传 JAR 为构建产物
+      # 5. (可选) 将编译好的 .class 文件打包为 Artifact 供下载
+      - name: Upload compiled artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bilibili-bot-jar
-          path: java/bilibili/bilibili-bot.jar
+          name: bilibili-bot-jdk-${{ matrix.java-version }}
+          path: java/bilibili/out/
+          retention-days: 7
           if-no-files-found: error
-
-      - name: 生成版本号
-        id: version
-        run: echo "tag=v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
-
-      - name: 上传到 Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "Bilibili Bot ${{ steps.version.outputs.tag }}"
-          body: |
-            ## B站直播弹幕机器人
-            - 字节码版本: Java 8 (兼容 JDK 8 ~ 21)
-            ### 使用方法
-            1. 下载 `bilibili-bot.jar`
-            2. 同目录创建 `bilibili_config.ini`
-            3. `java -jar bilibili-bot.jar`
-            ```ini
-            SESSDATA=xxx
-            bili_jct=xxx
-            DedeUserID=xxx
-            ROOM_ID=123456
-            KEYWORD_你好=你好呀~
