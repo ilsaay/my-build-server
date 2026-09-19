@@ -17,24 +17,29 @@ public class Bilibili {
     private static String csrf = "";
     
     public static void main(String[] args) {
-        System.out.println("=== Bilibili 弹幕机 (Java 1.6+ 兼容版) ===");
+        System.out.println("=== Bilibili 弹幕机 (Java 1.6+ 匿名监听版) ===");
         initConfig();
         
         csrf = extractCsrf(cookie);
         if (csrf.isEmpty()) {
-            System.out.println("[提示] Cookie 中未找到 bili_jct，将仅使用监听模式，无法发送弹幕。");
+            System.out.println("[提示] 未检测到有效的 bili_jct，将仅支持监听弹幕，无法发送弹幕。");
+        } else {
+            System.out.println("[提示] 已加载 Cookie，支持发送弹幕测试。");
         }
         
-        String[] danmuInfo = getDanmuInfo(roomId);
+        // 【核心修改】获取弹幕信息时，强制匿名，不传 Cookie，避免触发 -352 风控
+        String[] danmuInfo = getDanmuInfoAnonymously(roomId);
         String host = danmuInfo[0];
         String token = danmuInfo[1];
         System.out.println("[信息] 弹幕服务器: " + host);
         
         if (token.isEmpty()) {
-            System.err.println("[致命错误] 未能获取到 WebSocket Token！程序终止。");
+            System.err.println("[致命错误] 未能获取到 WebSocket Token！");
+            System.err.println("[排查] 1. 请确认 roomid 是【长房间号】(真实房间号)。");
+            System.err.println("[排查] 2. 当前服务器 IP 可能被 B站全面封锁，请尝试更换网络环境或在本地运行。");
             System.exit(1);
         }
-        System.out.println("[信息] 成功获取 Token，长度: " + token.length());
+        System.out.println("[信息] 匿名获取 Token 成功，长度: " + token.length());
         
         try {
             SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
@@ -48,6 +53,7 @@ public class Bilibili {
             new SecureRandom().nextBytes(nonce);
             String wsKey = encodeBase64(nonce);
             
+            // WebSocket 握手 (匿名)
             String handshake = "GET /sub HTTP/1.1\r\n" +
                     "Host: " + host + "\r\n" +
                     "Upgrade: websocket\r\n" +
@@ -72,13 +78,15 @@ public class Bilibili {
             
             String headerStr = headerBuf.toString("UTF-8");
             if (!headerStr.contains("101")) {
-                throw new RuntimeException("WebSocket 握手失败，服务器返回:\n" + headerStr);
+                throw new RuntimeException("WebSocket 握手失败:\n" + headerStr);
             }
-            System.out.println("[成功] WebSocket 连接已建立");
+            System.out.println("[成功] WebSocket 匿名连接已建立，开始监听弹幕...");
             
+            // 发送认证包 (uid=0 表示匿名监听)
             String authBody = "{\"uid\":0,\"roomid\":" + roomId + ",\"protover\":2,\"platform\":\"web\",\"type\":2,\"key\":\"" + token + "\"}";
             sendWsFrame(out, buildPacket(7, authBody.getBytes("UTF-8")));
             
+            // 心跳线程
             final OutputStream finalOut = out;
             Thread heartbeatThread = new Thread(new Runnable() {
                 public void run() {
@@ -95,10 +103,11 @@ public class Bilibili {
             heartbeatThread.setDaemon(true);
             heartbeatThread.start();
             
+            // 控制台输入线程 (仅当有 csrf 时才允许发送)
             Thread consoleThread = new Thread(new Runnable() {
                 public void run() {
                     Scanner scanner = new Scanner(System.in);
-                    System.out.println("[提示] 在控制台输入内容并回车，可直接发送弹幕进行测试。输入 'exit' 退出。");
+                    System.out.println("[提示] 在控制台输入内容并回车，可发送弹幕测试。输入 'exit' 退出。");
                     while (scanner.hasNextLine()) {
                         String msg = scanner.nextLine().trim();
                         if ("exit".equalsIgnoreCase(msg)) {
@@ -113,13 +122,14 @@ public class Bilibili {
             consoleThread.setDaemon(true);
             consoleThread.start();
             
+            // 主线程读取二进制帧
             DataInputStream dis = new DataInputStream(in);
             while (true) {
                 int b1;
                 try {
                     b1 = dis.readUnsignedByte();
                 } catch (EOFException e) {
-                    System.err.println("\n[错误] 连接被服务器主动关闭 (EOF)。可能是直播间已下播或 Token 失效。");
+                    System.err.println("\n[提示] 连接被服务器关闭。可能是直播间已下播。");
                     break;
                 }
                 
@@ -218,7 +228,7 @@ public class Bilibili {
     
     private static void sendDanmu(String msg) {
         if (csrf.isEmpty()) {
-            System.err.println("[发送失败] 缺少 bili_jct，无法发送弹幕。");
+            System.err.println("[发送失败] 缺少有效的 bili_jct，无法发送弹幕。");
             return;
         }
         try {
@@ -226,9 +236,13 @@ public class Bilibili {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setDoOutput(true);
+            
+            // 【核心修改】仅在发送弹幕时携带 Cookie
             conn.setRequestProperty("Cookie", cookie);
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            conn.setRequestProperty("Origin", "https://live.bilibili.com");
+            conn.setRequestProperty("Referer", "https://live.bilibili.com/" + roomId);
             
             String params = "roomid=" + roomId + 
                             "&msg=" + URLEncoder.encode(msg, "UTF-8") + 
@@ -242,7 +256,14 @@ public class Bilibili {
             
             int code = conn.getResponseCode();
             if (code == 200) {
-                System.out.println("[发送成功] " + msg);
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                String resp = br.readLine();
+                if (resp != null && resp.contains("\"code\":0")) {
+                    System.out.println("[发送成功] " + msg);
+                } else {
+                    System.err.println("[发送被拒] API 返回: " + resp);
+                }
+                br.close();
             } else {
                 System.err.println("[发送失败] HTTP " + code);
             }
@@ -258,15 +279,14 @@ public class Bilibili {
             try {
                 PrintWriter pw = new PrintWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"));
                 pw.println("[config]");
-                pw.println("# 请填入你的 Bilibili Cookie (必须包含 bili_jct 才能发送弹幕)");
-                pw.println("cookie=SESSDATA=your_sessdata; bili_jct=your_jct;");
-                pw.println("# 直播间 ID (⚠️ 必须是长房间号/真实房间号，通常是6-8位数字)");
+                pw.println("# 监听为匿名模式。若要发送弹幕，Cookie 必须包含 bili_jct");
+                pw.println("cookie=SESSDATA=your_value; bili_jct=your_value;");
+                pw.println("# 必须是长房间号 (真实房间号)");
                 pw.println("roomid=21452505");
-                pw.println("# 触发关键词，用逗号分隔");
                 pw.println("keywords=主播真帅,666,测试");
                 pw.flush();
                 pw.close();
-                System.out.println("[提示] 已生成默认配置文件 " + CONFIG_FILE + "，请修改后重新运行。");
+                System.out.println("[提示] 已生成配置文件 " + CONFIG_FILE + "，请修改后重新运行。");
                 System.exit(0);
             } catch (Exception e) {
                 System.err.println("[错误] 无法创建配置文件: " + e.getMessage());
@@ -294,21 +314,17 @@ public class Bilibili {
         }
     }
     
-    private static String[] getDanmuInfo(String roomId) {
+    // 【核心修改】完全匿名获取 DanmuInfo，不携带任何 Cookie，极大降低 -352 概率
+    private static String[] getDanmuInfoAnonymously(String roomId) {
         String host = DEFAULT_HOST;
         String token = "";
         try {
             URL url = new URL("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id=" + roomId + "&type=0");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             
-            // 【核心防风控】添加完整的浏览器请求头
+            // 仅保留最基础的浏览器伪装，绝对不传 Cookie
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             conn.setRequestProperty("Referer", "https://live.bilibili.com/" + roomId);
-            conn.setRequestProperty("Origin", "https://live.bilibili.com");
-            
-            if (!cookie.isEmpty()) {
-                conn.setRequestProperty("Cookie", cookie);
-            }
             
             if (conn.getResponseCode() != 200) {
                 System.err.println("[警告] API 请求失败，HTTP " + conn.getResponseCode());
@@ -322,16 +338,13 @@ public class Bilibili {
             br.close();
             String json = sb.toString();
             
-            // 【精准拦截】检测 B站 -352 风控错误
             if (json.contains("\"code\":-352") || json.contains("\"code\": -352")) {
                 System.err.println("\n========================================");
-                System.err.println("[致命错误] B站 API 返回 -352 (风控校验失败)！");
+                System.err.println("[致命错误] 匿名请求依然被 B站返回 -352 (风控校验失败)！");
                 System.err.println("========================================");
-                System.err.println("[原因分析] 你当前使用的网络 IP (如云服务器/GitHub Actions) 已被 B站风控系统拦截。");
-                System.err.println("[解决方案] 1. 强烈建议在【本地个人电脑】上运行此程序，家庭宽带 IP 极少被风控。");
-                System.err.println("[解决方案] 2. 如果必须在服务器运行，请配置 HTTP 代理 (Proxy)。");
-                System.err.println("[解决方案] 3. 确认 bilibili_config.ini 中的 roomid 是【长房间号】(真实房间号)。");
-                System.err.println("[解决方案] 4. 尝试清除 cookie，仅保留 SESSDATA 和 bili_jct，去除多余字段。");
+                System.err.println("[原因] 当前服务器/容器 IP 已被 B站全面拉黑，连匿名接口都被拦截。");
+                System.err.println("[解决] 1. 必须更换服务器 IP，或改在【本地个人电脑】上运行。");
+                System.err.println("[解决] 2. 确认 bilibili_config.ini 中的 roomid 是【长房间号】。");
                 System.err.println("========================================\n");
                 System.exit(1);
             }
@@ -339,17 +352,13 @@ public class Bilibili {
             int tokenIdx = json.indexOf("\"token\":\"");
             if (tokenIdx != -1) {
                 int endIdx = json.indexOf("\"", tokenIdx + 9);
-                if (endIdx != -1) {
-                    token = json.substring(tokenIdx + 9, endIdx);
-                }
+                if (endIdx != -1) token = json.substring(tokenIdx + 9, endIdx);
             }
             
             int hostIdx = json.indexOf("\"host\":\"");
             if (hostIdx != -1) {
                 int endHostIdx = json.indexOf("\"", hostIdx + 8);
-                if (endHostIdx != -1) {
-                    host = json.substring(hostIdx + 8, endHostIdx);
-                }
+                if (endHostIdx != -1) host = json.substring(hostIdx + 8, endHostIdx);
             }
             
         } catch (Exception e) {
