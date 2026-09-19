@@ -18,25 +18,32 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # 用 JDK 21 编译, 但通过 --release 8 生成 Java 8 字节码
-      # 这样 jar 能在 Java 8 ~ 21 全部运行
       - name: 安装 JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: 检查源码文件
+        working-directory: java/bilibili
+        run: |
+          echo "=== 目录内容 ==="
+          ls -la
+          # 只接受 Main.java (区分大小写)
+          if [ ! -f Main.java ]; then
+            echo "❌ 找不到 Main.java"
+            echo "你的类名是 public class Main, 文件名必须叫 Main.java"
+            echo "当前目录下的 .java 文件:"
+            ls *.java 2>/dev/null || echo "(没有 .java 文件)"
+            exit 1
+          fi
+          echo "✅ 找到 Main.java"
+
       - name: 编译为 Java 8 兼容字节码
         working-directory: java/bilibili
         run: |
           mkdir -p build
-          # --release 8 强制使用 Java 8 的 API 和字节码版本
-          # 如果 javac 版本不支持 --release, 退回到 -source 8 -target 8
-          if javac --help 2>&1 | grep -q -- '--release'; then
-            javac --release 8 -encoding UTF-8 -d build Main.java
-          else
-            javac -source 8 -target 8 -encoding UTF-8 -d build Main.java
-          fi
+          javac --release 8 -encoding UTF-8 -d build Main.java
           echo "=== 编译产物 ==="
           find build -name '*.class'
 
@@ -44,15 +51,13 @@ jobs:
         working-directory: java/bilibili
         run: |
           cd build
-          # 读第 7-8 字节 (major version), 52 表示 Java 8
           MAJOR=$(od -An -tu1 -j6 -N2 Main.class | awk '{print $1*256+$2}')
-          echo "字节码主版本号: $MAJOR"
-          if [ "$MAJOR" -le 52 ]; then
-            echo "✅ 兼容 Java 8+"
-          else
+          echo "字节码主版本号: $MAJOR (52 = Java 8)"
+          if [ "$MAJOR" -gt 52 ]; then
             echo "❌ 字节码版本过高, 不兼容 Java 8"
             exit 1
           fi
+          echo "✅ 兼容 Java 8+"
 
       - name: 打包为可执行 JAR
         working-directory: java/bilibili
@@ -64,28 +69,25 @@ jobs:
           jar tf bilibili-bot.jar
           echo "=== MANIFEST ==="
           unzip -p bilibili-bot.jar META-INF/MANIFEST.MF
-          echo "=== 文件大小 ==="
           ls -lh bilibili-bot.jar
 
-      - name: 校验入口类正确
+      - name: 校验入口类和 class 数量
         working-directory: java/bilibili
         run: |
           MANIFEST=$(unzip -p bilibili-bot.jar META-INF/MANIFEST.MF)
-          echo "$MANIFEST"
-          if echo "$MANIFEST" | grep -q "Main-Class: Main"; then
-            echo "✅ 入口类正确: Main"
-          else
+          if ! echo "$MANIFEST" | grep -q "Main-Class: Main"; then
             echo "❌ 入口类错误! 期望 Main-Class: Main"
+            echo "$MANIFEST"
             exit 1
           fi
-          # 确认 jar 里只有 Main.class, 没有别的项目混进来
           COUNT=$(jar tf bilibili-bot.jar | grep -c '\.class$')
           echo "class 文件数量: $COUNT"
           if [ "$COUNT" -ne 1 ]; then
-            echo "❌ jar 中 class 数量异常, 可能有其他项目混入"
+            echo "❌ jar 中 class 数量异常"
             jar tf bilibili-bot.jar | grep '\.class$'
             exit 1
           fi
+          echo "✅ jar 校验通过"
 
       - name: 上传 JAR 为构建产物
         uses: actions/upload-artifact@v4
@@ -96,8 +98,7 @@ jobs:
 
       - name: 生成版本号
         id: version
-        run: |
-          echo "tag=v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+        run: echo "tag=v$(date +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
       - name: 上传到 Release
         uses: softprops/action-gh-release@v2
@@ -107,7 +108,6 @@ jobs:
           body: |
             ## B站直播弹幕机器人
 
-            - 源码: `java/bilibili/main.java`
             - 字节码版本: Java 8 (兼容 JDK 8 ~ 21)
             - 构建: ${{ github.sha }}
 
@@ -116,7 +116,6 @@ jobs:
             2. 在同目录创建 `bilibili_config.ini`
             3. 运行 `java -jar bilibili-bot.jar`
 
-            ### 配置模板
             ```ini
             SESSDATA=你的SESSDATA
             bili_jct=你的bili_jct
