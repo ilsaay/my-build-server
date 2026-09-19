@@ -1,12 +1,12 @@
 import java.io.*;
 import java.net.*;
-import java.nio.charset.Charset; // <-- 新增此行修复第二个错误
+import java.nio.charset.Charset;
 import java.security.*;
 import java.util.*;
 import java.util.zip.*;
 import javax.net.ssl.*;
 
-public class Bilibili { // <-- 类名首字母必须大写
+public class Bilibili {
     
     private static final String CONFIG_FILE = "bilibili_config.ini";
     private static final String DEFAULT_HOST = "broadcastlv.chat.bilibili.com";
@@ -19,6 +19,7 @@ public class Bilibili { // <-- 类名首字母必须大写
     public static void main(String[] args) {
         System.out.println("=== Bilibili 弹幕机 (Java 1.6+ 兼容版) ===");
         initConfig();
+        
         csrf = extractCsrf(cookie);
         if (csrf.isEmpty()) {
             System.err.println("[警告] Cookie 中未找到 bili_jct，发送弹幕功能可能失效！");
@@ -28,6 +29,7 @@ public class Bilibili { // <-- 类名首字母必须大写
         String host = danmuInfo[0];
         String token = danmuInfo[1];
         System.out.println("[信息] 弹幕服务器: " + host);
+        System.out.println("[信息] 获取到 Token 长度: " + token.length() + (token.isEmpty() ? " (可能为空，部分房间允许)" : ""));
         
         try {
             SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
@@ -37,33 +39,47 @@ public class Bilibili { // <-- 类名首字母必须大写
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
             
+            // 1. 生成 WebSocket Key
             byte[] nonce = new byte[16];
             new SecureRandom().nextBytes(nonce);
             String wsKey = encodeBase64(nonce);
             
+            // 2. 发送握手请求 (添加 User-Agent，移除可能导致拦截的 Protocol)
             String handshake = "GET /sub HTTP/1.1\r\n" +
                     "Host: " + host + "\r\n" +
                     "Upgrade: websocket\r\n" +
                     "Connection: Upgrade\r\n" +
                     "Sec-WebSocket-Key: " + wsKey + "\r\n" +
                     "Sec-WebSocket-Version: 13\r\n" +
-                    "Sec-WebSocket-Protocol: bilibili\r\n\r\n";
+                    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36\r\n" +
+                    "Origin: https://live.bilibili.com\r\n\r\n";
             out.write(handshake.getBytes("UTF-8"));
             out.flush();
             
-            BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
-            String statusLine = reader.readLine();
-            if (statusLine == null || !statusLine.contains("101")) {
-                throw new RuntimeException("WebSocket 握手失败: " + statusLine);
+            // 3. 【核心修复】手动逐字节读取 HTTP 响应头，直到 \r\n\r\n，避免 BufferedReader 吞掉后续二进制数据
+            ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
+            int b;
+            while ((b = in.read()) != -1) {
+                headerBuf.write(b);
+                byte[] buf = headerBuf.toByteArray();
+                int len = buf.length;
+                // 检查是否以 \r\n\r\n 结尾
+                if (len >= 4 && buf[len-4] == '\r' && buf[len-3] == '\n' && buf[len-2] == '\r' && buf[len-1] == '\n') {
+                    break;
+                }
             }
-            String line;
-            while ((line = reader.readLine()) != null && !line.isEmpty()) {}
             
+            String headerStr = headerBuf.toString("UTF-8");
+            if (!headerStr.contains("101")) {
+                throw new RuntimeException("WebSocket 握手失败，服务器返回:\n" + headerStr);
+            }
             System.out.println("[成功] WebSocket 连接已建立");
             
+            // 4. 发送认证包
             String authBody = "{\"uid\":0,\"roomid\":" + roomId + ",\"protover\":2,\"platform\":\"web\",\"type\":2,\"key\":\"" + token + "\"}";
             sendWsFrame(out, buildPacket(7, authBody.getBytes("UTF-8")));
             
+            // 5. 启动心跳线程
             final OutputStream finalOut = out;
             Thread heartbeatThread = new Thread(new Runnable() {
                 public void run() {
@@ -80,6 +96,7 @@ public class Bilibili { // <-- 类名首字母必须大写
             heartbeatThread.setDaemon(true);
             heartbeatThread.start();
             
+            // 6. 启动控制台输入线程
             Thread consoleThread = new Thread(new Runnable() {
                 public void run() {
                     Scanner scanner = new Scanner(System.in);
@@ -98,8 +115,8 @@ public class Bilibili { // <-- 类名首字母必须大写
             consoleThread.setDaemon(true);
             consoleThread.start();
             
+            // 7. 主线程读取 WebSocket 二进制帧 (此时 in 的指针正好在第一个二进制帧的起始位置)
             DataInputStream dis = new DataInputStream(in);
-            byte[] buffer = new byte[65536];
             
             while (true) {
                 int b1 = dis.readUnsignedByte();
@@ -127,13 +144,17 @@ public class Bilibili { // <-- 类名首字母必须大写
                         payload[i] ^= maskKey[i % 4];
                     }
                 }
+                
                 processBilibiliPacket(payload);
             }
+            
         } catch (Exception e) {
             System.err.println("[致命错误] " + e.getMessage());
             e.printStackTrace();
         }
     }
+    
+    // ================= 核心业务逻辑 =================
     
     private static void processBilibiliPacket(byte[] data) {
         if (data.length < 16) return;
@@ -142,11 +163,11 @@ public class Bilibili { // <-- 类名首字母必须大写
         int protoVer = readShort(data, 6);
         int operation = readInt(data, 8);
         
-        if (operation == 5) {
+        if (operation == 5) { // 消息包
             byte[] body = new byte[packetLen - headerLen];
             System.arraycopy(data, headerLen, body, 0, body.length);
             
-            if (protoVer == 2) {
+            if (protoVer == 2) { // Zlib 压缩
                 try {
                     body = decompressZlib(body);
                     int offset = 0;
@@ -174,7 +195,6 @@ public class Bilibili { // <-- 类名首字母必须大写
         int operation = readInt(data, 8);
         
         if (operation == 5) {
-            // 修复点：使用完整的 Charset 类名或确保已 import
             String json = new String(data, headerLen, packetLen - headerLen, Charset.forName("UTF-8"));
             if (json.contains("\"cmd\":\"DANMU_MSG\"")) {
                 String content = extractDanmuContent(json);
@@ -227,6 +247,8 @@ public class Bilibili { // <-- 类名首字母必须大写
             System.err.println("[发送异常] " + e.getMessage());
         }
     }
+    
+    // ================= 配置与工具方法 =================
     
     private static void initConfig() {
         File file = new File(CONFIG_FILE);
@@ -318,6 +340,8 @@ public class Bilibili { // <-- 类名首字母必须大写
         }
         return null;
     }
+    
+    // ================= 网络与协议底层实现 =================
     
     private static byte[] buildPacket(int operation, byte[] body) {
         int packetLen = 16 + body.length;
