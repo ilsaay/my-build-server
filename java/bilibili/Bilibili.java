@@ -22,7 +22,7 @@ public class Bilibili {
         
         csrf = extractCsrf(cookie);
         if (csrf.isEmpty()) {
-            System.err.println("[警告] Cookie 中未找到 bili_jct，发送弹幕功能可能失效！");
+            System.out.println("[提示] Cookie 中未找到 bili_jct，将仅使用监听模式，无法发送弹幕。");
         }
         
         String[] danmuInfo = getDanmuInfo(roomId);
@@ -31,10 +31,7 @@ public class Bilibili {
         System.out.println("[信息] 弹幕服务器: " + host);
         
         if (token.isEmpty()) {
-            System.err.println("[致命错误] 未能获取到 WebSocket Token！");
-            System.err.println("[排查建议] 1. 请检查 bilibili_config.ini 中的 roomid 是否为【长房间号】(真实房间号)，短号可能无法获取 token。");
-            System.err.println("[排查建议] 2. 请检查 cookie 是否完整且有效 (必须包含 SESSDATA 和 bili_jct)。");
-            System.err.println("[排查建议] 3. 确认该直播间当前处于开启状态。");
+            System.err.println("[致命错误] 未能获取到 WebSocket Token！程序终止。");
             System.exit(1);
         }
         System.out.println("[信息] 成功获取 Token，长度: " + token.length());
@@ -57,12 +54,11 @@ public class Bilibili {
                     "Connection: Upgrade\r\n" +
                     "Sec-WebSocket-Key: " + wsKey + "\r\n" +
                     "Sec-WebSocket-Version: 13\r\n" +
-                    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36\r\n" +
+                    "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36\r\n" +
                     "Origin: https://live.bilibili.com\r\n\r\n";
             out.write(handshake.getBytes("UTF-8"));
             out.flush();
             
-            // 手动逐字节读取 HTTP 响应头，避免 BufferedReader 吞掉二进制数据
             ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
             int b;
             while ((b = in.read()) != -1) {
@@ -80,11 +76,9 @@ public class Bilibili {
             }
             System.out.println("[成功] WebSocket 连接已建立");
             
-            // 发送认证包
             String authBody = "{\"uid\":0,\"roomid\":" + roomId + ",\"protover\":2,\"platform\":\"web\",\"type\":2,\"key\":\"" + token + "\"}";
             sendWsFrame(out, buildPacket(7, authBody.getBytes("UTF-8")));
             
-            // 心跳线程
             final OutputStream finalOut = out;
             Thread heartbeatThread = new Thread(new Runnable() {
                 public void run() {
@@ -94,14 +88,13 @@ public class Bilibili {
                             sendWsFrame(finalOut, buildPacket(2, "".getBytes("UTF-8")));
                         }
                     } catch (Exception e) {
-                        // 连接断开时正常退出
+                        // 连接断开时静默退出
                     }
                 }
             });
             heartbeatThread.setDaemon(true);
             heartbeatThread.start();
             
-            // 控制台输入线程
             Thread consoleThread = new Thread(new Runnable() {
                 public void run() {
                     Scanner scanner = new Scanner(System.in);
@@ -120,18 +113,13 @@ public class Bilibili {
             consoleThread.setDaemon(true);
             consoleThread.start();
             
-            // 主线程读取二进制帧
             DataInputStream dis = new DataInputStream(in);
-            
             while (true) {
                 int b1;
                 try {
                     b1 = dis.readUnsignedByte();
                 } catch (EOFException e) {
-                    System.err.println("\n[错误] 连接被服务器主动关闭 (EOF)。");
-                    System.err.println("[排查建议] 1. 请确保 bilibili_config.ini 中的 roomid 是【长房间号】(真实房间号)。");
-                    System.err.println("[排查建议] 2. 请确保 cookie 有效且未过期。");
-                    System.err.println("[排查建议] 3. 直播间可能已下播。");
+                    System.err.println("\n[错误] 连接被服务器主动关闭 (EOF)。可能是直播间已下播或 Token 失效。");
                     break;
                 }
                 
@@ -159,17 +147,13 @@ public class Bilibili {
                         payload[i] ^= maskKey[i % 4];
                     }
                 }
-                
                 processBilibiliPacket(payload);
             }
-            
         } catch (Exception e) {
             System.err.println("[致命错误] " + e.getMessage());
             e.printStackTrace();
         }
     }
-    
-    // ================= 核心业务逻辑 =================
     
     private static void processBilibiliPacket(byte[] data) {
         if (data.length < 16) return;
@@ -233,6 +217,10 @@ public class Bilibili {
     }
     
     private static void sendDanmu(String msg) {
+        if (csrf.isEmpty()) {
+            System.err.println("[发送失败] 缺少 bili_jct，无法发送弹幕。");
+            return;
+        }
         try {
             URL url = new URL("https://api.live.bilibili.com/msg/send");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -240,7 +228,7 @@ public class Bilibili {
             conn.setDoOutput(true);
             conn.setRequestProperty("Cookie", cookie);
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
             
             String params = "roomid=" + roomId + 
                             "&msg=" + URLEncoder.encode(msg, "UTF-8") + 
@@ -264,17 +252,15 @@ public class Bilibili {
         }
     }
     
-    // ================= 配置与工具方法 =================
-    
     private static void initConfig() {
         File file = new File(CONFIG_FILE);
         if (!file.exists()) {
             try {
                 PrintWriter pw = new PrintWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"));
                 pw.println("[config]");
-                pw.println("# 请填入你的 Bilibili Cookie (必须包含 bili_jct)");
+                pw.println("# 请填入你的 Bilibili Cookie (必须包含 bili_jct 才能发送弹幕)");
                 pw.println("cookie=SESSDATA=your_sessdata; bili_jct=your_jct;");
-                pw.println("# 直播间 ID (⚠️ 强烈建议使用长房间号/真实房间号，短号可能导致获取 token 失败)");
+                pw.println("# 直播间 ID (⚠️ 必须是长房间号/真实房间号，通常是6-8位数字)");
                 pw.println("roomid=21452505");
                 pw.println("# 触发关键词，用逗号分隔");
                 pw.println("keywords=主播真帅,666,测试");
@@ -314,8 +300,15 @@ public class Bilibili {
         try {
             URL url = new URL("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id=" + roomId + "&type=0");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestProperty("Cookie", cookie);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            
+            // 【核心防风控】添加完整的浏览器请求头
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            conn.setRequestProperty("Referer", "https://live.bilibili.com/" + roomId);
+            conn.setRequestProperty("Origin", "https://live.bilibili.com");
+            
+            if (!cookie.isEmpty()) {
+                conn.setRequestProperty("Cookie", cookie);
+            }
             
             if (conn.getResponseCode() != 200) {
                 System.err.println("[警告] API 请求失败，HTTP " + conn.getResponseCode());
@@ -328,6 +321,20 @@ public class Bilibili {
             while ((line = br.readLine()) != null) sb.append(line);
             br.close();
             String json = sb.toString();
+            
+            // 【精准拦截】检测 B站 -352 风控错误
+            if (json.contains("\"code\":-352") || json.contains("\"code\": -352")) {
+                System.err.println("\n========================================");
+                System.err.println("[致命错误] B站 API 返回 -352 (风控校验失败)！");
+                System.err.println("========================================");
+                System.err.println("[原因分析] 你当前使用的网络 IP (如云服务器/GitHub Actions) 已被 B站风控系统拦截。");
+                System.err.println("[解决方案] 1. 强烈建议在【本地个人电脑】上运行此程序，家庭宽带 IP 极少被风控。");
+                System.err.println("[解决方案] 2. 如果必须在服务器运行，请配置 HTTP 代理 (Proxy)。");
+                System.err.println("[解决方案] 3. 确认 bilibili_config.ini 中的 roomid 是【长房间号】(真实房间号)。");
+                System.err.println("[解决方案] 4. 尝试清除 cookie，仅保留 SESSDATA 和 bili_jct，去除多余字段。");
+                System.err.println("========================================\n");
+                System.exit(1);
+            }
             
             int tokenIdx = json.indexOf("\"token\":\"");
             if (tokenIdx != -1) {
@@ -343,11 +350,6 @@ public class Bilibili {
                 if (endHostIdx != -1) {
                     host = json.substring(hostIdx + 8, endHostIdx);
                 }
-            }
-            
-            // 如果没拿到 token，打印部分 JSON 帮助用户排查
-            if (token.isEmpty()) {
-                System.err.println("[调试] API 返回的 JSON 片段: " + json.substring(0, Math.min(300, json.length())));
             }
             
         } catch (Exception e) {
@@ -376,8 +378,6 @@ public class Bilibili {
         }
         return null;
     }
-    
-    // ================= 网络与协议底层实现 =================
     
     private static byte[] buildPacket(int operation, byte[] body) {
         int packetLen = 16 + body.length;
