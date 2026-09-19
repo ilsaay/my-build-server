@@ -1,518 +1,430 @@
 import java.io.*;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
+import java.security.*;
 import java.util.*;
-import java.util.regex.*;
+import java.util.zip.*;
+import javax.net.ssl.*;
 
-public class Main {
-
-    // ============ 从配置文件读取的参数 ============
-    static String COOKIE = "";
-    static long ROOM_ID = 0;
-    static String biliJct = "";
-    static String uid = "";
-    static long realRoomId = 0;
-    static String token = "";
-    static String host = "";
-    static int port = 0;
-
-    /** 关键词 -> 回复内容 */
-    static final Map<String, String> KEYWORDS = new LinkedHashMap<>();
-
-    public static void main(String[] args) throws Exception {
-        // 1. 加载配置文件
-        File configFile = locateConfigFile();
-        if (configFile == null || !configFile.exists()) {
-            System.err.println("找不到配置文件 bilibili_config.ini");
-            System.err.println("请在 jar 所在目录创建该文件, 格式参考:");
-            System.err.println("  SESSDATA=xxx");
-            System.err.println("  bili_jct=xxx");
-            System.err.println("  DedeUserID=xxx");
-            System.err.println("  ROOM_ID=123456");
-            System.err.println("  KEYWORD_你好=你好呀~");
-            return;
+public class Bilibili {
+    
+    private static final String CONFIG_FILE = "bilibili_config.ini";
+    private static final String DEFAULT_HOST = "broadcastlv.chat.bilibili.com";
+    private static final String WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    
+    private static String cookie = "";
+    private static String roomId = "";
+    private static String[] keywords = new String[0];
+    private static String csrf = "";
+    
+    public static void main(String[] args) {
+        System.out.println("=== Bilibili 弹幕机 (Java 1.6+ 兼容版) ===");
+        
+        // 1. 初始化配置
+        initConfig();
+        
+        // 2. 提取 CSRF (bili_jct)
+        csrf = extractCsrf(cookie);
+        if (csrf.isEmpty()) {
+            System.err.println("[警告] Cookie 中未找到 bili_jct，发送弹幕功能可能失效！");
         }
-        System.out.println(">>> 加载配置文件: " + configFile.getAbsolutePath());
-        loadConfig(configFile);
-
-        // 2. 校验配置
-        if (COOKIE.isEmpty() || ROOM_ID == 0) {
-            System.err.println("配置不完整: SESSDATA/bili_jct/DedeUserID/ROOM_ID 必填");
-            return;
-        }
-        System.out.println(">>> 房间号: " + ROOM_ID);
-        System.out.println(">>> 关键词数量: " + KEYWORDS.size());
-
-        // 3. 获取真实房间号
-        getRealRoomId();
-        System.out.println(">>> 真实房间号: " + realRoomId);
-
-        // 4. 获取弹幕服务器信息
-        getDanmuInfo();
-        System.out.println(">>> 弹幕服务器: " + host + ":" + port);
-
-        // 5. 连接WebSocket
-        connectWebSocket();
-    }
-
-    // ==================== 配置加载 ====================
-
-    /**
-     * 定位配置文件: 优先 jar 所在目录, 其次当前工作目录
-     */
-    static File locateConfigFile() {
-        List<File> candidates = new ArrayList<>();
-
-        // 1. jar 所在目录
+        
+        // 3. 获取弹幕服务器信息
+        String[] danmuInfo = getDanmuInfo(roomId);
+        String host = danmuInfo[0];
+        String token = danmuInfo[1];
+        System.out.println("[信息] 弹幕服务器: " + host);
+        
+        // 4. 建立 WebSocket 连接
         try {
-            File jar = new File(Main.class.getProtectionDomain()
-                    .getCodeSource().getLocation().toURI());
-            File dir = jar.isFile() ? jar.getParentFile() : jar;
-            if (dir != null) {
-                candidates.add(new File(dir, "bilibili_config.ini"));
+            SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
+            SSLSocket socket = (SSLSocket) factory.createSocket(host, 443);
+            socket.startHandshake();
+            
+            OutputStream out = socket.getOutputStream();
+            InputStream in = socket.getInputStream();
+            
+            // WebSocket 握手
+            byte[] nonce = new byte[16];
+            new SecureRandom().nextBytes(nonce);
+            String wsKey = encodeBase64(nonce);
+            
+            String handshake = "GET /sub HTTP/1.1\r\n" +
+                    "Host: " + host + "\r\n" +
+                    "Upgrade: websocket\r\n" +
+                    "Connection: Upgrade\r\n" +
+                    "Sec-WebSocket-Key: " + wsKey + "\r\n" +
+                    "Sec-WebSocket-Version: 13\r\n" +
+                    "Sec-WebSocket-Protocol: bilibili\r\n\r\n";
+            out.write(handshake.getBytes("UTF-8"));
+            out.flush();
+            
+            // 读取握手响应
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
+            String statusLine = reader.readLine();
+            if (statusLine == null || !statusLine.contains("101")) {
+                throw new RuntimeException("WebSocket 握手失败: " + statusLine);
             }
-        } catch (Exception ignored) {}
-
-        // 2. 当前工作目录
-        candidates.add(new File("bilibili_config.ini"));
-        candidates.add(new File(System.getProperty("user.dir"), "bilibili_config.ini"));
-
-        for (File f : candidates) {
-            if (f.exists() && f.isFile()) return f;
-        }
-        return null;
-    }
-
-    /**
-     * 解析 ini 文件
-     */
-    static void loadConfig(File file) throws IOException {
-        Map<String, String> kv = new LinkedHashMap<>();
-        try (BufferedReader br = new BufferedReader(
-                new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            // 跳过剩余 Header
             String line;
-            while ((line = br.readLine()) != null) {
-                line = line.trim();
-                // 跳过空行和注释
-                if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) continue;
-                int eq = line.indexOf('=');
-                if (eq < 0) continue;
-                String key = line.substring(0, eq).trim();
-                String val = line.substring(eq + 1).trim();
-                // 去掉可能的引号
-                if (val.length() >= 2 &&
-                        ((val.startsWith("\"") && val.endsWith("\"")) ||
-                         (val.startsWith("'") && val.endsWith("'")))) {
-                    val = val.substring(1, val.length() - 1);
-                }
-                kv.put(key, val);
-            }
-        }
-
-        // 组装 Cookie
-        String sessdata = kv.getOrDefault("SESSDATA", "");
-        biliJct        = kv.getOrDefault("bili_jct", "");
-        uid            = kv.getOrDefault("DedeUserID", "");
-
-        StringBuilder ck = new StringBuilder();
-        if (!sessdata.isEmpty()) ck.append("SESSDATA=").append(sessdata).append("; ");
-        if (!biliJct.isEmpty())  ck.append("bili_jct=").append(biliJct).append("; ");
-        if (!uid.isEmpty())      ck.append("DedeUserID=").append(uid).append("; ");
-        COOKIE = ck.toString().trim();
-
-        // 房间号
-        String roomStr = kv.getOrDefault("ROOM_ID", "0");
-        try { ROOM_ID = Long.parseLong(roomStr); } catch (NumberFormatException e) { ROOM_ID = 0; }
-
-        // 关键词: KEYWORD_xxx=yyy
-        for (Map.Entry<String, String> e : kv.entrySet()) {
-            String k = e.getKey();
-            if (k.startsWith("KEYWORD_")) {
-                String keyword = k.substring("KEYWORD_".length());
-                if (!keyword.isEmpty()) {
-                    KEYWORDS.put(keyword, e.getValue());
-                }
-            }
-        }
-    }
-
-    // ==================== HTTP 工具 ====================
-
-    static String httpGet(String url) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setRequestMethod("GET");
-        conn.setRequestProperty("Cookie", COOKIE);
-        conn.setRequestProperty("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        conn.setConnectTimeout(10000);
-        conn.setReadTimeout(10000);
-        return readResponse(conn);
-    }
-
-    static String httpPost(String url, Map<String, String> params) throws Exception {
-        StringBuilder body = new StringBuilder();
-        for (Map.Entry<String, String> e : params.entrySet()) {
-            if (body.length() > 0) body.append("&");
-            body.append(URLEncoder.encode(e.getKey(), "UTF-8"))
-                .append("=")
-                .append(URLEncoder.encode(e.getValue(), "UTF-8"));
-        }
-        HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-        conn.setRequestMethod("POST");
-        conn.setDoOutput(true);
-        conn.setRequestProperty("Cookie", COOKIE);
-        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-        conn.setRequestProperty("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        conn.setConnectTimeout(10000);
-        conn.setReadTimeout(10000);
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(body.toString().getBytes(StandardCharsets.UTF_8));
-        }
-        return readResponse(conn);
-    }
-
-    static String readResponse(HttpURLConnection conn) throws Exception {
-        InputStream is = conn.getResponseCode() >= 400
-                ? conn.getErrorStream() : conn.getInputStream();
-        if (is == null) return "";
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-        is.close();
-        return new String(bos.toByteArray(), StandardCharsets.UTF_8);
-    }
-
-    // ==================== B站API ====================
-
-    static void getRealRoomId() throws Exception {
-        String url = "https://api.live.bilibili.com/room/v1/Room/room_init?id=" + ROOM_ID;
-        String resp = httpGet(url);
-        realRoomId = extractLong(resp, "\"room_id\":");
-        if (realRoomId == 0) {
-            throw new RuntimeException("获取真实房间号失败: " + resp);
-        }
-    }
-
-    static void getDanmuInfo() throws Exception {
-        String url = "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="
-                + realRoomId + "&type=0";
-        String resp = httpGet(url);
-
-        Matcher mHost = Pattern.compile("\"host\":\"([^\"]+)\"").matcher(resp);
-        if (mHost.find()) host = mHost.group(1);
-        Matcher mPort = Pattern.compile("\"wss_port\":(\\d+)").matcher(resp);
-        if (mPort.find()) port = Integer.parseInt(mPort.group(1));
-        Matcher mToken = Pattern.compile("\"token\":\"([^\"]+)\"").matcher(resp);
-        if (mToken.find()) token = mToken.group(1);
-
-        if (host.isEmpty()) {
-            host = "broadcastlv.chat.bilibili.com";
-            port = 443;
-        }
-    }
-
-    // ==================== WebSocket ====================
-
-    static void connectWebSocket() throws Exception {
-        Socket socket;
-        if (port == 443) {
-            javax.net.ssl.SSLSocketFactory factory =
-                    (javax.net.ssl.SSLSocketFactory) javax.net.ssl.SSLSocketFactory.getDefault();
-            javax.net.ssl.SSLSocket ssl = (javax.net.ssl.SSLSocket) factory.createSocket(host, port);
-            ssl.startHandshake();
-            socket = ssl;
-        } else {
-            socket = new Socket(host, port);
-        }
-        socket.setSoTimeout(0);
-        InputStream in = socket.getInputStream();
-        OutputStream out = socket.getOutputStream();
-
-        String key = Base64.getEncoder().encodeToString(
-                UUID.randomUUID().toString().replace("-", "").getBytes(StandardCharsets.UTF_8));
-
-        String handshake =
-                "GET /sub HTTP/1.1\r\n" +
-                "Host: " + host + "\r\n" +
-                "Upgrade: websocket\r\n" +
-                "Connection: Upgrade\r\n" +
-                "Sec-WebSocket-Key: " + key + "\r\n" +
-                "Sec-WebSocket-Version: 13\r\n" +
-                "Origin: https://live.bilibili.com\r\n" +
-                "User-Agent: Mozilla/5.0\r\n" +
-                "\r\n";
-        out.write(handshake.getBytes(StandardCharsets.UTF_8));
-        out.flush();
-
-        // 读取握手响应
-        StringBuilder sb = new StringBuilder();
-        int c;
-        while ((c = in.read()) != -1) {
-            sb.append((char) c);
-            if (sb.length() >= 4 && sb.substring(sb.length() - 4).equals("\r\n\r\n")) break;
-        }
-        System.out.println(">>> WebSocket 握手完成");
-
-        // 发送认证包
-        sendAuthPacket(out);
-        System.out.println(">>> 已发送认证包, 等待弹幕...");
-
-        // 心跳线程
-        Thread heart = new Thread(() -> {
-            try {
-                while (!socket.isClosed()) {
-                    Thread.sleep(30000);
-                    sendHeartbeat(out);
-                }
-            } catch (Exception ignored) {}
-        });
-        heart.setDaemon(true);
-        heart.start();
-
-        // 主循环读消息
-        while (true) {
-            byte[] frame = readWsFrame(in);
-            if (frame == null) break;
-            handleBiliPacket(frame);
-        }
-    }
-
-    static void sendAuthPacket(OutputStream out) throws Exception {
-        String json = "{\"uid\":" + (uid.isEmpty() ? 0 : Long.parseLong(uid)) +
-                ",\"roomid\":" + realRoomId +
-                ",\"protover\":2,\"platform\":\"web\",\"type\":2,\"key\":\"" + token + "\"}";
-        byte[] payload = json.getBytes(StandardCharsets.UTF_8);
-        byte[] packet = buildBiliPacket((short) 7, 1, payload);
-        sendWsBinary(out, packet);
-    }
-
-    static void sendHeartbeat(OutputStream out) throws Exception {
-        byte[] packet = buildBiliPacket((short) 2, 1, new byte[0]);
-        sendWsBinary(out, packet);
-    }
-
-    // ==================== B站协议 ====================
-
-    static byte[] buildBiliPacket(short action, int version, byte[] body) {
-        int total = 16 + body.length;
-        byte[] p = new byte[total];
-        writeInt(p, 0, total);
-        writeShort(p, 4, (short) 16);
-        writeShort(p, 6, version);
-        writeInt(p, 8, action);
-        writeInt(p, 12, 1);
-        System.arraycopy(body, 0, p, 16, body.length);
-        return p;
-    }
-
-    static void writeInt(byte[] b, int off, int v) {
-        b[off] = (byte) (v >>> 24);
-        b[off+1] = (byte) (v >>> 16);
-        b[off+2] = (byte) (v >>> 8);
-        b[off+3] = (byte) v;
-    }
-    static void writeShort(byte[] b, int off, short v) {
-        b[off] = (byte) (v >>> 8);
-        b[off+1] = (byte) v;
-    }
-    static int readInt(byte[] b, int off) {
-        return ((b[off]&0xFF)<<24) | ((b[off+1]&0xFF)<<16) | ((b[off+2]&0xFF)<<8) | (b[off+3]&0xFF);
-    }
-    static short readShort(byte[] b, int off) {
-        return (short)(((b[off]&0xFF)<<8) | (b[off+1]&0xFF));
-    }
-
-    // ==================== WebSocket 帧 ====================
-
-    static void sendWsBinary(OutputStream out, byte[] payload) throws Exception {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        bos.write(0x82);
-        int len = payload.length;
-        if (len < 126) {
-            bos.write(0x80 | len);
-        } else if (len < 65536) {
-            bos.write(0x80 | 126);
-            bos.write((len >>> 8) & 0xFF);
-            bos.write(len & 0xFF);
-        } else {
-            bos.write(0x80 | 127);
-            for (int i = 7; i >= 0; i--) bos.write((int)((long)len >>> (i*8)) & 0xFF);
-        }
-        byte[] mask = new byte[4];
-        new Random().nextBytes(mask);
-        bos.write(mask);
-        for (int i = 0; i < len; i++) bos.write(payload[i] ^ mask[i % 4]);
-        out.write(bos.toByteArray());
-        out.flush();
-    }
-
-    static byte[] readWsFrame(InputStream in) throws Exception {
-        int b1 = in.read();
-        if (b1 == -1) return null;
-        int b2 = in.read();
-        int opcode = b1 & 0x0F;
-        boolean masked = (b2 & 0x80) != 0;
-        long len = b2 & 0x7F;
-        if (len == 126) {
-            len = (in.read() << 8) | in.read();
-        } else if (len == 127) {
-            len = 0;
-            for (int i = 0; i < 8; i++) len = (len << 8) | in.read();
-        }
-        byte[] mask = null;
-        if (masked) {
-            mask = new byte[4];
-            readFully(in, mask);
-        }
-        byte[] payload = new byte[(int) len];
-        readFully(in, payload);
-        if (masked) {
-            for (int i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-        }
-        if (opcode == 0x8) return null;
-        if (opcode == 0x9) return new byte[0];
-        return payload;
-    }
-
-    static void readFully(InputStream in, byte[] buf) throws Exception {
-        int off = 0;
-        while (off < buf.length) {
-            int n = in.read(buf, off, buf.length - off);
-            if (n == -1) throw new EOFException();
-            off += n;
-        }
-    }
-
-    // ==================== 消息处理 ====================
-
-    static void handleBiliPacket(byte[] data) {
-        if (data.length < 16) return;
-        int offset = 0;
-        while (offset + 16 <= data.length) {
-            int packetLen = readInt(data, offset);
-            short headerLen = readShort(data, offset + 4);
-            short ver = readShort(data, offset + 6);
-            int op = readInt(data, offset + 8);
-            if (packetLen <= 0 || offset + packetLen > data.length) break;
-            byte[] body = Arrays.copyOfRange(data, offset + headerLen, offset + packetLen);
-
-            if (op == 5) {
-                if (ver == 2) {
+            while ((line = reader.readLine()) != null && !line.isEmpty()) {}
+            
+            System.out.println("[成功] WebSocket 连接已建立");
+            
+            // 5. 发送认证包
+            String authBody = "{\"uid\":0,\"roomid\":" + roomId + ",\"protover\":2,\"platform\":\"web\",\"type\":2,\"key\":\"" + token + "\"}";
+            sendWsFrame(out, buildPacket(7, authBody.getBytes("UTF-8")));
+            
+            // 6. 启动心跳线程
+            final OutputStream finalOut = out;
+            Thread heartbeatThread = new Thread(new Runnable() {
+                public void run() {
                     try {
-                        byte[] unzipped = inflate(body);
-                        handleBiliPacket(unzipped);
-                    } catch (Exception ignored) {}
-                } else {
-                    handleMessage(new String(body, StandardCharsets.UTF_8));
+                        while (true) {
+                            Thread.sleep(30000);
+                            sendWsFrame(finalOut, buildPacket(2, "".getBytes("UTF-8")));
+                        }
+                    } catch (Exception e) {
+                        System.err.println("[错误] 心跳线程异常: " + e.getMessage());
+                    }
                 }
-            } else if (op == 3) {
-                int popularity = body.length >= 4 ? readInt(body, 0) : 0;
-                System.out.println("[人气] " + popularity);
-            } else if (op == 8) {
-                System.out.println(">>> 认证成功, 开始接收弹幕");
-            }
-            offset += packetLen;
-        }
-    }
-
-    static byte[] inflate(byte[] data) throws Exception {
-        java.util.zip.Inflater inflater = new java.util.zip.Inflater();
-        inflater.setInput(data);
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        while (!inflater.finished()) {
-            int n = inflater.inflate(buf);
-            if (n == 0) break;
-            bos.write(buf, 0, n);
-        }
-        inflater.end();
-        return bos.toByteArray();
-    }
-
-    static void handleMessage(String json) {
-        try {
-            String cmd = extractString(json, "\"cmd\":\"");
-            if (cmd == null) return;
-
-            if (cmd.startsWith("DANMU_MSG")) {
-                String user = extractDanmuUser(json);
-                String content = extractDanmuContent(json);
-                System.out.println("[弹幕] " + user + ": " + content);
-
-                // 关键词回复
-                if (content != null) {
-                    for (Map.Entry<String, String> e : KEYWORDS.entrySet()) {
-                        if (content.contains(e.getKey())) {
-                            sendDanmu(e.getValue());
-                            break;
+            });
+            heartbeatThread.setDaemon(true);
+            heartbeatThread.start();
+            
+            // 7. 启动控制台输入线程 (主播手动测试)
+            Thread consoleThread = new Thread(new Runnable() {
+                public void run() {
+                    Scanner scanner = new Scanner(System.in);
+                    System.out.println("[提示] 在控制台输入内容并回车，可直接发送弹幕进行测试。输入 'exit' 退出。");
+                    while (scanner.hasNextLine()) {
+                        String msg = scanner.nextLine().trim();
+                        if ("exit".equalsIgnoreCase(msg)) {
+                            System.exit(0);
+                        }
+                        if (!msg.isEmpty()) {
+                            sendDanmu(msg);
                         }
                     }
                 }
-            } else if (cmd.startsWith("SEND_GIFT")) {
-                String user = extractString(json, "\"uname\":\"");
-                String gift = extractString(json, "\"giftName\":\"");
-                System.out.println("[礼物] " + user + " 送出 " + gift);
-            } else if (cmd.startsWith("INTERACT_WORD")) {
-                String user = extractString(json, "\"uname\":\"");
-                System.out.println("[进入] " + user);
+            });
+            consoleThread.setDaemon(true);
+            consoleThread.start();
+            
+            // 8. 主线程接收弹幕
+            DataInputStream dis = new DataInputStream(in);
+            byte[] buffer = new byte[65536];
+            
+            while (true) {
+                // 解析 WebSocket 帧
+                int b1 = dis.readUnsignedByte();
+                int b2 = dis.readUnsignedByte();
+                boolean masked = (b2 & 0x80) != 0;
+                int payloadLen = b2 & 0x7F;
+                
+                if (payloadLen == 126) {
+                    payloadLen = dis.readUnsignedShort();
+                } else if (payloadLen == 127) {
+                    payloadLen = (int) dis.readLong(); // 简化处理，B站不会发这么大的包
+                }
+                
+                byte[] maskKey = null;
+                if (masked) {
+                    maskKey = new byte[4];
+                    dis.readFully(maskKey);
+                }
+                
+                byte[] payload = new byte[payloadLen];
+                dis.readFully(payload);
+                
+                if (masked) {
+                    for (int i = 0; i < payloadLen; i++) {
+                        payload[i] ^= maskKey[i % 4];
+                    }
+                }
+                
+                // 解析 Bilibili 自定义协议包
+                processBilibiliPacket(payload);
             }
-        } catch (Exception ignored) {}
+            
+        } catch (Exception e) {
+            System.err.println("[致命错误] " + e.getMessage());
+            e.printStackTrace();
+        }
     }
-
-    static String extractDanmuContent(String json) {
-        Matcher m = Pattern.compile("\"info\":\\[\\[[^\\]]*\\],\"([^\"]*)\"").matcher(json);
-        if (m.find()) return m.group(1);
+    
+    // ================= 核心业务逻辑 =================
+    
+    private static void processBilibiliPacket(byte[] data) {
+        if (data.length < 16) return;
+        
+        int packetLen = readInt(data, 0);
+        int headerLen = readShort(data, 4);
+        int protoVer = readShort(data, 6);
+        int operation = readInt(data, 8);
+        
+        if (operation == 5) { // 消息包
+            byte[] body = new byte[packetLen - headerLen];
+            System.arraycopy(data, headerLen, body, 0, body.length);
+            
+            if (protoVer == 2) { // Zlib 压缩
+                try {
+                    body = decompressZlib(body);
+                    // 解压后可能包含多个包，递归或循环解析
+                    int offset = 0;
+                    while (offset < body.length) {
+                        int subLen = readInt(body, offset);
+                        if (subLen <= 0 || offset + subLen > body.length) break;
+                        byte[] subPacket = new byte[subLen];
+                        System.arraycopy(body, offset, subPacket, 0, subLen);
+                        processSinglePacket(subPacket);
+                        offset += subLen;
+                    }
+                } catch (Exception e) {
+                    // 解压失败，尝试按普通 JSON 处理
+                    processSinglePacket(data); 
+                }
+            } else {
+                processSinglePacket(data);
+            }
+        }
+    }
+    
+    private static void processSinglePacket(byte[] data) {
+        if (data.length < 16) return;
+        int packetLen = readInt(data, 0);
+        int headerLen = readShort(data, 4);
+        int operation = readInt(data, 8);
+        
+        if (operation == 5) {
+            String json = new String(data, headerLen, packetLen - headerLen, Charset.forName("UTF-8"));
+            if (json.contains("\"cmd\":\"DANMU_MSG\"")) {
+                String content = extractDanmuContent(json);
+                if (content != null && !content.isEmpty()) {
+                    System.out.println("[弹幕] " + content);
+                    checkKeywords(content);
+                }
+            }
+        }
+    }
+    
+    private static void checkKeywords(String content) {
+        for (String kw : keywords) {
+            if (content.contains(kw)) {
+                String reply = "检测到关键词 [" + kw + "]，自动回复！";
+                System.out.println("[触发] " + reply);
+                sendDanmu(reply);
+                break;
+            }
+        }
+    }
+    
+    private static void sendDanmu(String msg) {
+        try {
+            URL url = new URL("https://api.live.bilibili.com/msg/send");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Cookie", cookie);
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+            
+            String params = "roomid=" + roomId + 
+                            "&msg=" + URLEncoder.encode(msg, "UTF-8") + 
+                            "&color=16777215&fontsize=25&mode=1&rnd=" + (System.currentTimeMillis() / 1000) + 
+                            "&csrf=" + csrf + "&csrf_token=" + csrf;
+            
+            OutputStream os = conn.getOutputStream();
+            os.write(params.getBytes("UTF-8"));
+            os.flush();
+            os.close();
+            
+            int code = conn.getResponseCode();
+            if (code == 200) {
+                System.out.println("[发送成功] " + msg);
+            } else {
+                System.err.println("[发送失败] HTTP " + code);
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            System.err.println("[发送异常] " + e.getMessage());
+        }
+    }
+    
+    // ================= 配置与工具方法 =================
+    
+    private static void initConfig() {
+        File file = new File(CONFIG_FILE);
+        if (!file.exists()) {
+            try {
+                PrintWriter pw = new PrintWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF-8"));
+                pw.println("[config]");
+                pw.println("# 请填入你的 Bilibili Cookie (必须包含 bili_jct)");
+                pw.println("cookie=SESSDATA=your_sessdata; bili_jct=your_jct;");
+                pw.println("# 直播间 ID (短 ID 或长 ID 均可)");
+                pw.println("roomid=21452505");
+                pw.println("# 触发关键词，用逗号分隔");
+                pw.println("keywords=主播真帅,666,测试");
+                pw.flush();
+                pw.close();
+                System.out.println("[提示] 已生成默认配置文件 " + CONFIG_FILE + "，请修改后重新运行。");
+                System.exit(0);
+            } catch (Exception e) {
+                System.err.println("[错误] 无法创建配置文件: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+        
+        try {
+            BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
+            String line;
+            while ((line = br.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("cookie=")) cookie = line.substring(7).trim();
+                else if (line.startsWith("roomid=")) roomId = line.substring(7).trim();
+                else if (line.startsWith("keywords=")) {
+                    String kws = line.substring(9).trim();
+                    keywords = kws.split(",");
+                    for(int i=0; i<keywords.length; i++) keywords[i] = keywords[i].trim();
+                }
+            }
+            br.close();
+        } catch (Exception e) {
+            System.err.println("[错误] 读取配置失败: " + e.getMessage());
+            System.exit(1);
+        }
+    }
+    
+    private static String[] getDanmuInfo(String roomId) {
+        String host = DEFAULT_HOST;
+        String token = "";
+        try {
+            URL url = new URL("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id=" + roomId);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestProperty("Cookie", cookie);
+            BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            br.close();
+            String json = sb.toString();
+            
+            // 简易 JSON 提取
+            int hostIdx = json.indexOf("\"host\":\"");
+            if (hostIdx != -1) {
+                host = json.substring(hostIdx + 8, json.indexOf("\"", hostIdx + 8));
+            }
+            int tokenIdx = json.indexOf("\"token\":\"");
+            if (tokenIdx != -1) {
+                token = json.substring(tokenIdx + 9, json.indexOf("\"", tokenIdx + 9));
+            }
+        } catch (Exception e) {
+            System.err.println("[警告] 获取弹幕服务器信息失败，使用默认服务器。");
+        }
+        return new String[]{host, token};
+    }
+    
+    private static String extractCsrf(String cookieStr) {
+        int idx = cookieStr.indexOf("bili_jct=");
+        if (idx != -1) {
+            String sub = cookieStr.substring(idx + 9);
+            int end = sub.indexOf(";");
+            return end != -1 ? sub.substring(0, end) : sub;
+        }
+        return "";
+    }
+    
+    private static String extractDanmuContent(String json) {
+        // 简易提取 info 数组的第二个元素 (弹幕内容)
+        int infoIdx = json.indexOf("\"info\":[");
+        if (infoIdx == -1) return null;
+        
+        int start = json.indexOf("\"", infoIdx + 8) + 1;
+        int end = json.indexOf("\"", start);
+        if (start > 0 && end > start) {
+            return json.substring(start, end);
+        }
         return null;
     }
-
-    static String extractDanmuUser(String json) {
-        Matcher m = Pattern.compile("\"info\":\\[\\[[^\\]]*\\],\"[^\"]*\",\\[[^\\]]*,\"([^\"]*)\"")
-                .matcher(json);
-        if (m.find()) return m.group(1);
-        String u = extractString(json, "\"uname\":\"");
-        return u == null ? "?" : u;
+    
+    // ================= 网络与协议底层实现 =================
+    
+    private static byte[] buildPacket(int operation, byte[] body) {
+        int packetLen = 16 + body.length;
+        byte[] packet = new byte[packetLen];
+        writeInt(packet, 0, packetLen);
+        writeShort(packet, 4, 16); // HeaderLen
+        writeShort(packet, 6, 1);  // ProtoVer (1=JSON)
+        writeInt(packet, 8, operation);
+        writeInt(packet, 12, 1);   // SeqId
+        System.arraycopy(body, 0, packet, 16, body.length);
+        return packet;
     }
-
-    static String extractString(String json, String key) {
-        int i = json.indexOf(key);
-        if (i < 0) return null;
-        int start = i + key.length();
-        int end = json.indexOf("\"", start);
-        if (end < 0) return null;
-        return json.substring(start, end);
-    }
-
-    static long extractLong(String json, String key) {
-        int i = json.indexOf(key);
-        if (i < 0) return 0;
-        int start = i + key.length();
-        int end = start;
-        while (end < json.length() && Character.isDigit(json.charAt(end))) end++;
-        if (end == start) return 0;
-        return Long.parseLong(json.substring(start, end));
-    }
-
-    // ==================== 发送弹幕 ====================
-
-    static void sendDanmu(String msg) {
-        try {
-            Map<String, String> params = new LinkedHashMap<>();
-            params.put("bubble", "0");
-            params.put("msg", msg);
-            params.put("color", "16777215");
-            params.put("mode", "1");
-            params.put("fontsize", "25");
-            params.put("rnd", String.valueOf(System.currentTimeMillis() / 1000));
-            params.put("roomid", String.valueOf(realRoomId));
-            params.put("csrf", biliJct);
-            params.put("csrf_token", biliJct);
-
-            String resp = httpPost("https://api.live.bilibili.com/msg/send", params);
-            System.out.println("[发送弹幕] " + msg + " -> " + resp);
-        } catch (Exception e) {
-            System.out.println("[发送弹幕失败] " + e.getMessage());
+    
+    private static void sendWsFrame(OutputStream out, byte[] payload) throws IOException {
+        out.write(0x82); // FIN + Binary
+        int len = payload.length;
+        if (len < 126) {
+            out.write(0x80 | len);
+        } else if (len < 65536) {
+            out.write(0x80 | 126);
+            out.write((len >> 8) & 0xFF);
+            out.write(len & 0xFF);
+        } else {
+            out.write(0x80 | 127);
+            for (int i = 7; i >= 0; i--) out.write((len >> (8 * i)) & 0xFF);
         }
+        
+        byte[] mask = new byte[4];
+        new SecureRandom().nextBytes(mask);
+        out.write(mask);
+        for (int i = 0; i < len; i++) {
+            out.write(payload[i] ^ mask[i % 4]);
+        }
+        out.flush();
+    }
+    
+    private static byte[] decompressZlib(byte[] data) throws DataFormatException {
+        Inflater inflater = new Inflater();
+        inflater.setInput(data);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        byte[] buf = new byte[1024];
+        while (!inflater.finished()) {
+            int count = inflater.inflate(buf);
+            if (count == 0) break;
+            baos.write(buf, 0, count);
+        }
+        inflater.end();
+        return baos.toByteArray();
+    }
+    
+    // 简易 Base64 实现 (兼容 Java 1.6)
+    private static final String BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    private static String encodeBase64(byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < data.length; i += 3) {
+            int b = ((data[i] & 0xFF) << 16) | ((i + 1 < data.length ? data[i + 1] & 0xFF : 0) << 8) | (i + 2 < data.length ? data[i + 2] & 0xFF : 0);
+            sb.append(BASE64_CHARS.charAt((b >> 18) & 0x3F));
+            sb.append(BASE64_CHARS.charAt((b >> 12) & 0x3F));
+            sb.append(i + 1 < data.length ? BASE64_CHARS.charAt((b >> 6) & 0x3F) : '=');
+            sb.append(i + 2 < data.length ? BASE64_CHARS.charAt(b & 0x3F) : '=');
+        }
+        return sb.toString();
+    }
+    
+    // 字节操作工具
+    private static int readInt(byte[] b, int off) {
+        return ((b[off] & 0xFF) << 24) | ((b[off+1] & 0xFF) << 16) | ((b[off+2] & 0xFF) << 8) | (b[off+3] & 0xFF);
+    }
+    private static int readShort(byte[] b, int off) {
+        return ((b[off] & 0xFF) << 8) | (b[off+1] & 0xFF);
+    }
+    private static void writeInt(byte[] b, int off, int val) {
+        b[off] = (byte) ((val >> 24) & 0xFF);
+        b[off+1] = (byte) ((val >> 16) & 0xFF);
+        b[off+2] = (byte) ((val >> 8) & 0xFF);
+        b[off+3] = (byte) (val & 0xFF);
+    }
+    private static void writeShort(byte[] b, int off, int val) {
+        b[off] = (byte) ((val >> 8) & 0xFF);
+        b[off+1] = (byte) (val & 0xFF);
     }
 }
