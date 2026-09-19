@@ -1,100 +1,33 @@
-name: php7.2,yml
+name: Setup PHP 7.2 Windows (Prebuilt)
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build-php72-windows:
+  setup-php72:
     runs-on: windows-2022
 
     steps:
-      # 1. 拉取你自己的仓库（不用 actions/checkout）
-      - name: Checkout
+      - name: Download PHP 7.2 Windows
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/ilsaay/my-build-server.git .
-          # 如果 PHP 源码不在这个仓库，改成 clone 对应仓库
+          Invoke-WebRequest -Uri "https://windows.php.net/downloads/releases/archives/php-7.2.34-Win32-VC15-x64.zip" -OutFile "php72.zip"
+          Expand-Archive php72.zip -DestinationPath C:\php72
 
-      # 2. 下载 php-sdk（不指定分支，clone 默认分支）
-      - name: Download php-sdk
+      - name: Harden php.ini
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/php/php-sdk-binary-tools.git php-sdk
-          Write-Host "=== Remote branches ==="
-          git -C php-sdk ls-remote --heads https://github.com/php/php-sdk-binary-tools.git
-          Write-Host "=== Remote tags ==="
-          git -C php-sdk ls-remote --tags https://github.com/php/php-sdk-binary-tools.git
+          Copy-Item C:\php72\php.ini-production C:\php72\php.ini
+          Add-Content C:\php72\php.ini @"
+          expose_php = Off
+          display_errors = Off
+          allow_url_fopen = Off
+          allow_url_include = Off
+          disable_functions = exec,passthru,shell_exec,system,proc_open,popen,eval,assert
+          "@
 
-      # 3. 下载 PHP 7.2 源码
-      - name: Download PHP 7.2 source
+      - name: Verify
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://www.php.net/distributions/php-7.2.34.tar.gz" -OutFile "php-7.2.34.tar.gz"
-          tar -xzf php-7.2.34.tar.gz
-
-      # 4. 配置 PHP（裁剪扩展）
-      - name: Configure PHP
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VS_PATH=%%i
-          call "%VS_PATH%\VC\Auxiliary\Build\vcvars64.bat"
-          cd php-sdk
-          call phpsdk-vc15-x64.bat
-          cd ..\php-7.2.34
-          call buildconf.bat
-          call configure.bat ^
-            --disable-all ^
-            --enable-cli ^
-            --enable-opcache ^
-            --with-libxml ^
-            --enable-mbstring ^
-            --enable-json ^
-            --without-mcrypt ^
-            --without-mysql ^
-            --disable-xmlrpc ^
-            --disable-wddx ^
-            --without-imap ^
-            --disable-ftp ^
-            --disable-sysvmsg ^
-            --disable-sysvsem ^
-            --disable-sysvshm ^
-            --without-tidy ^
-            --without-snmp ^
-            --without-ldap ^
-            --disable-soap ^
-            --without-curl ^
-            --without-openssl ^
-            --without-gd ^
-            --without-zip ^
-            --without-pdo-pgsql ^
-            --disable-zts
-
-      # 5. 编译
-      - name: Build
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VS_PATH=%%i
-          call "%VS_PATH%\VC\Auxiliary\Build\vcvars64.bat"
-          cd php-sdk
-          call phpsdk-vc15-x64.bat
-          cd ..\php-7.2.34
-          nmake
-
-      # 6. 收集产物
-      - name: Collect output
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path php72-win | Out-Null
-          Copy-Item php-7.2.34\x64\Release\php.exe php72-win\ -ErrorAction SilentlyContinue
-          Copy-Item php-7.2.34\x64\Release\php7.dll php72-win\ -ErrorAction SilentlyContinue
-          Copy-Item php-7.2.34\php.ini-production php72-win\php.ini -ErrorAction SilentlyContinue
-          Compress-Archive -Path php72-win\* -DestinationPath php72-win.zip -Force
-          Write-Host "Build output: php72-win.zip"
-
-      # 7. 显示产物路径
-      - name: Show artifact path
-        shell: pwsh
-        run: |
-          Get-Item php72-win.zip | Format-List
+          C:\php72\php.exe -v
+          C:\php72\php.exe -m
