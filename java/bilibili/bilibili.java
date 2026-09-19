@@ -1,15 +1,15 @@
 import java.io.*;
 import java.net.*;
+import java.nio.charset.Charset; // <-- 新增此行修复第二个错误
 import java.security.*;
 import java.util.*;
 import java.util.zip.*;
 import javax.net.ssl.*;
 
-public class Bilibili {
+public class Bilibili { // <-- 类名首字母必须大写
     
     private static final String CONFIG_FILE = "bilibili_config.ini";
     private static final String DEFAULT_HOST = "broadcastlv.chat.bilibili.com";
-    private static final String WS_MAGIC = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     
     private static String cookie = "";
     private static String roomId = "";
@@ -18,23 +18,17 @@ public class Bilibili {
     
     public static void main(String[] args) {
         System.out.println("=== Bilibili 弹幕机 (Java 1.6+ 兼容版) ===");
-        
-        // 1. 初始化配置
         initConfig();
-        
-        // 2. 提取 CSRF (bili_jct)
         csrf = extractCsrf(cookie);
         if (csrf.isEmpty()) {
             System.err.println("[警告] Cookie 中未找到 bili_jct，发送弹幕功能可能失效！");
         }
         
-        // 3. 获取弹幕服务器信息
         String[] danmuInfo = getDanmuInfo(roomId);
         String host = danmuInfo[0];
         String token = danmuInfo[1];
         System.out.println("[信息] 弹幕服务器: " + host);
         
-        // 4. 建立 WebSocket 连接
         try {
             SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
             SSLSocket socket = (SSLSocket) factory.createSocket(host, 443);
@@ -43,7 +37,6 @@ public class Bilibili {
             OutputStream out = socket.getOutputStream();
             InputStream in = socket.getInputStream();
             
-            // WebSocket 握手
             byte[] nonce = new byte[16];
             new SecureRandom().nextBytes(nonce);
             String wsKey = encodeBase64(nonce);
@@ -58,23 +51,19 @@ public class Bilibili {
             out.write(handshake.getBytes("UTF-8"));
             out.flush();
             
-            // 读取握手响应
             BufferedReader reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
             String statusLine = reader.readLine();
             if (statusLine == null || !statusLine.contains("101")) {
                 throw new RuntimeException("WebSocket 握手失败: " + statusLine);
             }
-            // 跳过剩余 Header
             String line;
             while ((line = reader.readLine()) != null && !line.isEmpty()) {}
             
             System.out.println("[成功] WebSocket 连接已建立");
             
-            // 5. 发送认证包
             String authBody = "{\"uid\":0,\"roomid\":" + roomId + ",\"protover\":2,\"platform\":\"web\",\"type\":2,\"key\":\"" + token + "\"}";
             sendWsFrame(out, buildPacket(7, authBody.getBytes("UTF-8")));
             
-            // 6. 启动心跳线程
             final OutputStream finalOut = out;
             Thread heartbeatThread = new Thread(new Runnable() {
                 public void run() {
@@ -91,7 +80,6 @@ public class Bilibili {
             heartbeatThread.setDaemon(true);
             heartbeatThread.start();
             
-            // 7. 启动控制台输入线程 (主播手动测试)
             Thread consoleThread = new Thread(new Runnable() {
                 public void run() {
                     Scanner scanner = new Scanner(System.in);
@@ -110,12 +98,10 @@ public class Bilibili {
             consoleThread.setDaemon(true);
             consoleThread.start();
             
-            // 8. 主线程接收弹幕
             DataInputStream dis = new DataInputStream(in);
             byte[] buffer = new byte[65536];
             
             while (true) {
-                // 解析 WebSocket 帧
                 int b1 = dis.readUnsignedByte();
                 int b2 = dis.readUnsignedByte();
                 boolean masked = (b2 & 0x80) != 0;
@@ -124,7 +110,7 @@ public class Bilibili {
                 if (payloadLen == 126) {
                     payloadLen = dis.readUnsignedShort();
                 } else if (payloadLen == 127) {
-                    payloadLen = (int) dis.readLong(); // 简化处理，B站不会发这么大的包
+                    payloadLen = (int) dis.readLong();
                 }
                 
                 byte[] maskKey = null;
@@ -141,35 +127,28 @@ public class Bilibili {
                         payload[i] ^= maskKey[i % 4];
                     }
                 }
-                
-                // 解析 Bilibili 自定义协议包
                 processBilibiliPacket(payload);
             }
-            
         } catch (Exception e) {
             System.err.println("[致命错误] " + e.getMessage());
             e.printStackTrace();
         }
     }
     
-    // ================= 核心业务逻辑 =================
-    
     private static void processBilibiliPacket(byte[] data) {
         if (data.length < 16) return;
-        
         int packetLen = readInt(data, 0);
         int headerLen = readShort(data, 4);
         int protoVer = readShort(data, 6);
         int operation = readInt(data, 8);
         
-        if (operation == 5) { // 消息包
+        if (operation == 5) {
             byte[] body = new byte[packetLen - headerLen];
             System.arraycopy(data, headerLen, body, 0, body.length);
             
-            if (protoVer == 2) { // Zlib 压缩
+            if (protoVer == 2) {
                 try {
                     body = decompressZlib(body);
-                    // 解压后可能包含多个包，递归或循环解析
                     int offset = 0;
                     while (offset < body.length) {
                         int subLen = readInt(body, offset);
@@ -180,7 +159,6 @@ public class Bilibili {
                         offset += subLen;
                     }
                 } catch (Exception e) {
-                    // 解压失败，尝试按普通 JSON 处理
                     processSinglePacket(data); 
                 }
             } else {
@@ -196,6 +174,7 @@ public class Bilibili {
         int operation = readInt(data, 8);
         
         if (operation == 5) {
+            // 修复点：使用完整的 Charset 类名或确保已 import
             String json = new String(data, headerLen, packetLen - headerLen, Charset.forName("UTF-8"));
             if (json.contains("\"cmd\":\"DANMU_MSG\"")) {
                 String content = extractDanmuContent(json);
@@ -248,8 +227,6 @@ public class Bilibili {
             System.err.println("[发送异常] " + e.getMessage());
         }
     }
-    
-    // ================= 配置与工具方法 =================
     
     private static void initConfig() {
         File file = new File(CONFIG_FILE);
@@ -307,7 +284,6 @@ public class Bilibili {
             br.close();
             String json = sb.toString();
             
-            // 简易 JSON 提取
             int hostIdx = json.indexOf("\"host\":\"");
             if (hostIdx != -1) {
                 host = json.substring(hostIdx + 8, json.indexOf("\"", hostIdx + 8));
@@ -333,10 +309,8 @@ public class Bilibili {
     }
     
     private static String extractDanmuContent(String json) {
-        // 简易提取 info 数组的第二个元素 (弹幕内容)
         int infoIdx = json.indexOf("\"info\":[");
         if (infoIdx == -1) return null;
-        
         int start = json.indexOf("\"", infoIdx + 8) + 1;
         int end = json.indexOf("\"", start);
         if (start > 0 && end > start) {
@@ -345,22 +319,20 @@ public class Bilibili {
         return null;
     }
     
-    // ================= 网络与协议底层实现 =================
-    
     private static byte[] buildPacket(int operation, byte[] body) {
         int packetLen = 16 + body.length;
         byte[] packet = new byte[packetLen];
         writeInt(packet, 0, packetLen);
-        writeShort(packet, 4, 16); // HeaderLen
-        writeShort(packet, 6, 1);  // ProtoVer (1=JSON)
+        writeShort(packet, 4, 16);
+        writeShort(packet, 6, 1);
         writeInt(packet, 8, operation);
-        writeInt(packet, 12, 1);   // SeqId
+        writeInt(packet, 12, 1);
         System.arraycopy(body, 0, packet, 16, body.length);
         return packet;
     }
     
     private static void sendWsFrame(OutputStream out, byte[] payload) throws IOException {
-        out.write(0x82); // FIN + Binary
+        out.write(0x82);
         int len = payload.length;
         if (len < 126) {
             out.write(0x80 | len);
@@ -396,7 +368,6 @@ public class Bilibili {
         return baos.toByteArray();
     }
     
-    // 简易 Base64 实现 (兼容 Java 1.6)
     private static final String BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     private static String encodeBase64(byte[] data) {
         StringBuilder sb = new StringBuilder();
@@ -410,7 +381,6 @@ public class Bilibili {
         return sb.toString();
     }
     
-    // 字节操作工具
     private static int readInt(byte[] b, int off) {
         return ((b[off] & 0xFF) << 24) | ((b[off+1] & 0xFF) << 16) | ((b[off+2] & 0xFF) << 8) | (b[off+3] & 0xFF);
     }
