@@ -10,33 +10,29 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      # 1. 拉取仓库
-      - name: Checkout
-        shell: pwsh
-        run: |
-          git clone --depth 1 https://github.com/ilsaay/my-build-server.git .
-
-      # 2. 列出仓库内容（关键：先看有什么）
-      - name: List repo contents
-        shell: cmd
-        run: |
-          echo === 当前目录 ===
-          cd
-          echo === 所有文件 ===
-          dir /s /b
-          echo === 查找 go 文件 ===
-          dir /s /b *.go
-          echo === 查找 go.mod ===
-          dir /s /b go.mod
-
-      # 3. 下载 Go 1.15
+      # 1. 下载 Go 1.15 Windows x64
       - name: Download Go 1.15
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "https://go.dev/dl/go1.15.15.windows-amd64.zip" -OutFile "go1.15.zip"
           Expand-Archive go1.15.zip -DestinationPath C:\go1.15
 
-      # 4. 编译（等确认源码位置后再改这里）
+      # 2. 拉取要编译的 Go 源码（改成你自己的源码仓库）
+      - name: Clone Go source
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/ilsaay/your-go-source.git src
+          # 如果源码在子目录，后面 cd 进去
+
+      # 3. 查看源码结构（确认 main.go / go.mod 在哪）
+      - name: Inspect source
+        shell: cmd
+        run: |
+          cd src
+          dir /s /b *.go
+          dir /s /b go.mod
+
+      # 4. 编译：裁剪 + 关风险 + 禁止下载
       - name: Build no-download exe
         shell: cmd
         run: |
@@ -47,10 +43,35 @@ jobs:
           set GOPROXY=off
           set GO111MODULE=on
 
-          rem 根据上一步的结果，改这里的路径
-          rem 如果 go.mod 在根目录：
-          go build -tags "netgo osusergo" -ldflags "-s -w" -o app.exe .
+          cd src
+          rem 如果 go.mod 在根目录，用 .；否则 cd 到 main.go 所在目录
+          go build -tags "netgo osusergo" -ldflags "-s -w" -o ..\app.exe .
 
-          rem 如果源码在子目录，比如 cmd\app：
-          rem cd cmd\app
-          rem go build -tags "netgo osusergo" -ldflags "-s -w" -o ..\..\app.exe .
+      # 5. 验证
+      - name: Verify
+        shell: pwsh
+        run: |
+          Get-Item app.exe | Format-List
+
+      # 6. 打包
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path app.exe -DestinationPath app-win-x64.zip -Force
+
+      # 7. 上传 exe 到 GitHub Release 或 Artifact
+      # 方案 A：用 actions/upload-artifact（如果允许）
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: app-win-x64
+      #     path: app-win-x64.zip
+
+      # 方案 B：上传到 Release（需要 GITHUB_TOKEN）
+      - name: Upload to Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 需要先装 gh CLI 或直接用 API
+          # 简单示例：把 zip 放到工作区，供后续手动下载
+          Get-Item app-win-x64.zip | Format-List
