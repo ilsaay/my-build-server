@@ -1,4 +1,4 @@
-name: Build sing-box 1.8.14 Windows 386 Client
+name: Build sing-box 1.8.14 Linux 386 Client
 
 on:
   workflow_dispatch:
@@ -45,11 +45,9 @@ jobs:
         sed -i '/outbound\/ssh/d' adapter/outbound.go
         
         # ========== 端点清理 ==========
-        # 查找并删除 tailscale
         find . -name "*tailscale*" -type d -exec rm -rf {} + 2>/dev/null || true
         find . -name "*tailscale*" -type f -delete 2>/dev/null || true
         
-        # 从 Go 文件中删除 tailscale 引用
         grep -rl "tailscale" --include="*.go" . | while read file; do
           sed -i '/tailscale/d' "$file"
         done
@@ -61,25 +59,26 @@ jobs:
         grep "outbound/" adapter/outbound.go || true
         echo "=== 继续编译 ==="
     
-    - name: Build Windows 386
+    - name: Build Linux 386
       run: |
         cd sing-box-1.8.14
         mkdir -p dist
         
-        GOOS=windows GOARCH=386 go build \
+        # CGO_ENABLED=0 确保静态链接，兼容老内核
+        CGO_ENABLED=0 GOOS=linux GOARCH=386 go build \
           -trimpath \
-          -ldflags "-s -w" \
-          -tags "with_utls,with_reality_server,with_clash_api,with_quic,with_wireguard" \
-          -o dist/sing-box-windows-386.exe \
+          -ldflags "-s -w -extldflags '-static'" \
+          -tags "with_utls,with_reality_server,with_quic,with_wireguard" \
+          -o dist/sing-box-linux-386 \
           ./cmd/sing-box
     
     - name: Package
       run: |
         cd sing-box-1.8.14/dist
-        zip sing-box-1.8.14-windows-386-client.zip sing-box-windows-386.exe
+        zip sing-box-1.8.14-linux-386-client.zip sing-box-linux-386
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: sing-box-1.8.14-windows-386-client
-        path: sing-box-1.8.14/dist/sing-box-1.8.14-windows-386-client.zip
+        name: sing-box-1.8.14-linux-386-client
+        path: sing-box-1.8.14/dist/sing-box-1.8.14-linux-386-client.zip
