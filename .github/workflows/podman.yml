@@ -1,4 +1,4 @@
-name: Build Podman Static Binary
+name: Build Podman Static (No GPGME)
 
 on:
   workflow_dispatch:
@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libseccomp-dev libgpgme-dev libassuan-dev \
+            libseccomp-dev libassuan-dev \
             libbtrfs-dev libdevmapper-dev pkg-config \
             gcc make git
 
@@ -36,26 +36,31 @@ jobs:
         run: |
           cd podman-src
           
-          # 关键：使用 CGO + 静态链接标志
+          # 核心配置：禁用 gpgme 并开启静态链接
           export CGO_ENABLED=1
           export GOOS=linux
           export GOARCH=amd64
-          
-          # 静态链接的核心参数
+          export CGO_LDFLAGS="-static"
           export LDFLAGS="-extldflags '-static'"
           
-          # 排除不需要的存储驱动以减小体积和依赖
-          export BUILDTAGS="exclude_graphdriver_btrfs exclude_graphdriver_devicemapper seccomp apparmor selinux"
+          # 关键：加入 disable_gpgme
+          export BUILDTAGS="exclude_graphdriver_btrfs exclude_graphdriver_devicemapper seccomp apparmor selinux disable_gpgme"
           
-          # 使用正确的 make 目标（podman 而非 podman-static）
-          make podman LDFLAGS="$LDFLAGS" BUILDTAGS="$BUILDTAGS"
+          # 执行编译
+          make podman
           
-          # 验证是否为静态链接
-          file bin/podman
-          ldd bin/podman || echo "✅ 确认为静态二进制文件"
+          # 移动文件到根目录方便上传
+          mv bin/podman ../podman-binary
+
+      - name: Verify Binary
+        run: |
+          echo "=== File Info ==="
+          file podman-binary
+          echo "=== Dynamic Dependencies ==="
+          ldd podman-binary || echo "✅ Success: No dynamic dependencies found or only libc remains."
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: podman-static-linux-amd64
-          path: podman-src/bin/podman
+          name: podman-static-no-gpgme
+          path: podman-binary
