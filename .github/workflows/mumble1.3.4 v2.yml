@@ -64,7 +64,7 @@ jobs:
             LIBS+=-L/opt/openssl-1.1.1/lib \
             PREFIX=/usr \
             QMAKE_CXXFLAGS+="-Wno-deprecated-declarations" \
-            QMAKE_LFLAGS+="-Wl,-rpath,\$ORIGIN/lib"
+            QMAKE_LFLAGS+="-Wl,-rpath,\$\$ORIGIN/lib"
 
       - name: Compile
         working-directory: mumble-src
@@ -103,15 +103,15 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'DIR="$(cd "$(dirname "$0")" && pwd)"' \
-            'export LD_LIBRARY_PATH="$DIR/lib"' \
-            'export QT_PLUGIN_PATH="$DIR/plugins"' \
-            'export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"' \
-            'export QT_NO_SYSTEM_PLUGIN_CACHE=1' \
-            'exec "$DIR/mumble" "$@"' \
-            > dist/Mumble.sh
+          cat > dist/Mumble.sh << 'SCRIPT_EOF'
+          #!/bin/sh
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$DIR/lib"
+          export QT_PLUGIN_PATH="$DIR/plugins"
+          export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
+          export QT_NO_SYSTEM_PLUGIN_CACHE=1
+          exec "$DIR/mumble" "$@"
+          SCRIPT_EOF
 
           chmod +x dist/Mumble.sh
           touch dist/portable.ini
