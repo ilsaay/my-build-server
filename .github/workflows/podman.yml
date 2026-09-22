@@ -1,7 +1,7 @@
 name: Build Podman Static Binary
 
 on:
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
     inputs:
       version:
         description: 'Podman Version'
@@ -22,22 +22,37 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22' # Podman 5.x 通常需要较新的 Go 版本
+          go-version: '1.22'
 
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libseccomp-dev libgpgme-dev libassuan-dev libbtrfs-dev libdevmapper-dev pkg-config
+          sudo apt-get install -y \
+            libseccomp-dev libgpgme-dev libassuan-dev \
+            libbtrfs-dev libdevmapper-dev pkg-config \
+            gcc make git
 
-      - name: Build Static Binary
+      - name: Build Static Podman Binary
         run: |
           cd podman-src
-          # 设置环境变量以进行静态编译
-          export CGO_ENABLED=1
-          export BUILDTAGS="exclude_graphdriver_btrfs exclude_graphdriver_devicemapper seccomp"
           
-          # 编译 podman 主程序
-          make podman-static
+          # 关键：使用 CGO + 静态链接标志
+          export CGO_ENABLED=1
+          export GOOS=linux
+          export GOARCH=amd64
+          
+          # 静态链接的核心参数
+          export LDFLAGS="-extldflags '-static'"
+          
+          # 排除不需要的存储驱动以减小体积和依赖
+          export BUILDTAGS="exclude_graphdriver_btrfs exclude_graphdriver_devicemapper seccomp apparmor selinux"
+          
+          # 使用正确的 make 目标（podman 而非 podman-static）
+          make podman LDFLAGS="$LDFLAGS" BUILDTAGS="$BUILDTAGS"
+          
+          # 验证是否为静态链接
+          file bin/podman
+          ldd bin/podman || echo "✅ 确认为静态二进制文件"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
