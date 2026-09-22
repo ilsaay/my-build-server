@@ -1,0 +1,53 @@
+name: Build Mumble 1.3.4 Portable Minimal
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-linux-x86_64:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout Mumble 1.3.4
+        uses: actions/checkout@v4
+        with:
+          repository: mumble-voip/mumble
+          ref: v1.3.4
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            qt5-default qttools5-dev-tools libqt5svg5-dev \
+            libssl-dev libopus-dev libspeexdsp-dev \
+            libasound2-dev libpulse-dev \
+            protobuf-compiler libprotobuf-dev
+
+      - name: Configure Minimal Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release \
+            -Dportable=ON \
+            -Dtranslations=ON \
+            -Doverlay=OFF \
+            -Dplugins=OFF \
+            -Dg15=OFF \
+            -Dbonjour=OFF \
+            -Ddbus=OFF \
+            -Dupdate-check=OFF \
+            -Dcrash-report=OFF \
+            -Daudio-jack=OFF \
+            -Daudio-speechd=OFF \
+            -Dzeroconf=OFF \
+            -Dserver=OFF \
+            -Dgrpc=OFF
+
+      - name: Compile
+        run: cmake --build build -j$(nproc)
+
+      - name: Package Portable Bundle
+        run: |
+          mkdir -p dist/Data
+          cp build
