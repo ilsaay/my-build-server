@@ -25,7 +25,8 @@ jobs:
             protobuf-compiler libprotobuf-dev \
             libspeexdsp-dev libopus-dev \
             libsndfile1-dev \
-            libboost-dev
+            libboost-dev \
+            libx11-dev libxi-dev libxtst-dev
 
       - name: Build OpenSSL 1.1.1 Static
         run: |
@@ -56,6 +57,7 @@ jobs:
           mkdir -p dist/Data
           cp release/mumble dist/
 
+          # 复制语言包（兼容多种输出位置）
           if [ -d release/translations ]; then
             cp -r release/translations dist/
           elif [ -d translations ]; then
@@ -63,7 +65,9 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
+          # 便携模式触发文件
           touch dist/portable.ini
+
           cd dist && tar czf ../../mumble-1.3.4-portable-minimal-linux-x86_64.tar.gz .
 
       - name: Upload Artifact
