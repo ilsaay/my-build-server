@@ -2,7 +2,8 @@ name: Build Mumble 1.3.4 V2 Portable Minimal
 
 on:
   push:
-    tags: ['*']
+    tags:
+      - "*"
   workflow_dispatch:
 
 jobs:
@@ -10,40 +11,50 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ubuntu:20.04
-    steps:
-      - name: Clone Mumble 1.3.4 Source
-        run: |
-          apt-get update && apt-get install -y git ca-certificates
-          git clone --depth 1 --branch 1.3.4 --recurse-submodules \
-            https://github.com/mumble-voip/mumble.git mumble-src
-          ls -la mumble-src/main.pro
 
-      - name: Install System Dependencies
+    steps:
+      - name: Install git and clone source
         run: |
           apt-get update
-          apt-get install -y \
-            build-essential pkg-config wget zip \
-            qtbase5-dev qttools5-dev-tools libqt5svg5-dev libqt5sql5-sqlite \
-            libasound2-dev libpulse-dev \
-            protobuf-compiler libprotobuf-dev \
-            libspeexdsp-dev libopus-dev \
+          apt-get install -y --no-install-recommends git ca-certificates
+          git clone --depth 1 --branch 1.3.4 --recurse-submodules \
+            https://github.com/mumble-voip/mumble.git mumble-src
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            wget \
+            zip \
+            qtbase5-dev \
+            qttools5-dev-tools \
+            libqt5svg5-dev \
+            libqt5sql5-sqlite \
+            libasound2-dev \
+            libpulse-dev \
+            protobuf-compiler \
+            libprotobuf-dev \
+            libspeexdsp-dev \
+            libopus-dev \
             libsndfile1-dev \
             libboost-dev \
-            libx11-dev libxi-dev libxtst-dev
+            libx11-dev \
+            libxi-dev \
+            libxtst-dev
 
-      - name: Build OpenSSL 1.1.1 Static
+      - name: Build OpenSSL 1.1.1w (static)
         run: |
           wget https://www.openssl.org/source/openssl-1.1.1w.tar.gz
           tar xzf openssl-1.1.1w.tar.gz
           cd openssl-1.1.1w
           ./Configure linux-x86_64 no-shared --prefix=/opt/openssl-1.1.1 -fPIC
-          make -j$(nproc)
+          make -j"$(nproc)"
           make install_sw
 
-      - name: Configure & Compile with qmake
+      - name: Configure with qmake
         working-directory: mumble-src
-        env:
-          OPENSSL_ROOT: /opt/openssl-1.1.1
         run: |
           qmake main.pro \
             CONFIG+="release portable no-server no-overlay no-plugins no-g15 no-bonjour no-dbus no-update-check no-crash-report no-jack no-speechd no-zeroconf no-grpc" \
@@ -51,29 +62,33 @@ jobs:
             LIBS+=-L/opt/openssl-1.1.1/lib \
             PREFIX=/usr \
             QMAKE_CXXFLAGS+="-Wno-deprecated-declarations" \
-            QMAKE_LFLAGS+="-Wl,-rpath,'\$ORIGIN/lib'"
-          make -j$(nproc)
+            QMAKE_LFLAGS+="-Wl,-rpath,\$\$ORIGIN/lib"
 
-      - name: Package Self-Contained Bundle
+      - name: Compile
+        working-directory: mumble-src
+        run: make -j"$(nproc)"
+
+      - name: Package portable bundle
         working-directory: mumble-src
         run: |
           mkdir -p dist/Data dist/lib dist/plugins/platforms dist/plugins/imageformats
           cp release/mumble dist/
 
           EXCLUDE="libc\.so|libm\.so|libdl\.so|librt\.so|libpthread\.so|libstdc\+\+\.so|libgcc_s\.so|ld-linux"
+
           ldd release/mumble | grep "=> /" | awk '{print $3}' | \
-            grep -vE "$EXCLUDE" | while read lib; do
+            grep -vE "$EXCLUDE" | while read -r lib; do
               cp -L "$lib" dist/lib/ 2>/dev/null || true
             done
 
-          QT_PLUGIN_PATH=$(qmake -query QT_INSTALL_PLUGINS)
+          QT_PLUGIN_PATH="$(qmake -query QT_INSTALL_PLUGINS)"
           cp "$QT_PLUGIN_PATH/platforms/libqxcb.so" dist/plugins/platforms/
           cp "$QT_PLUGIN_PATH/imageformats/libqsvg.so" dist/plugins/imageformats/ 2>/dev/null || true
 
           for plugin in dist/plugins/platforms/*.so dist/plugins/imageformats/*.so; do
             if [ -f "$plugin" ]; then
               ldd "$plugin" | grep "=> /" | awk '{print $3}' | \
-                grep -vE "$EXCLUDE" | while read lib; do
+                grep -vE "$EXCLUDE" | while read -r lib; do
                   cp -L "$lib" dist/lib/ 2>/dev/null || true
                 done
             fi
@@ -86,21 +101,21 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
-          cat > dist/Mumble.sh << 'LAUNCHER'
-#!/bin/sh
-DIR="$(cd "$(dirname "$0")" && pwd)"
-export LD_LIBRARY_PATH="$DIR/lib"
-export QT_PLUGIN_PATH="$DIR/plugins"
-export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
-export QT_NO_SYSTEM_PLUGIN_CACHE=1
-exec "$DIR/mumble" "$@"
-LAUNCHER
-          chmod +x dist/Mumble.sh
+          cat > dist/Mumble.sh << 'EOF'
+          #!/bin/sh
+          DIR="$(cd "$(dirname "$0")" && pwd)"
+          export LD_LIBRARY_PATH="$DIR/lib"
+          export QT_PLUGIN_PATH="$DIR/plugins"
+          export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
+          export QT_NO_SYSTEM_PLUGIN_CACHE=1
+          exec "$DIR/mumble" "$@"
+          EOF
 
+          chmod +x dist/Mumble.sh
           touch dist/portable.ini
           cd dist && zip -r ../mumble-1.3.4-portable-linux-x86_64.zip .
 
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mumble-1.3.4-portable-bundled
