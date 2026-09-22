@@ -1,4 +1,4 @@
-name: Build Podman Static (No GPGME)
+name: Build Podman Static (Fixed GPGME)
 
 on:
   workflow_dispatch:
@@ -36,31 +36,35 @@ jobs:
         run: |
           cd podman-src
           
-          # 核心配置：禁用 gpgme 并开启静态链接
+          # 1. 清理之前的构建缓存，防止标签冲突
+          go clean -cache
+          
+          # 2. 设置环境变量
           export CGO_ENABLED=1
           export GOOS=linux
           export GOARCH=amd64
           export CGO_LDFLAGS="-static"
           export LDFLAGS="-extldflags '-static'"
           
-          # 关键：加入 disable_gpgme
+          # 3. 关键：确保 disable_gpgme 在 tags 中
+          # 注意：tags 之间用空格分隔
           export BUILDTAGS="exclude_graphdriver_btrfs exclude_graphdriver_devicemapper seccomp apparmor selinux disable_gpgme"
           
-          # 执行编译
-          make podman
+          echo "Building with tags: $BUILDTAGS"
           
-          # 移动文件到根目录方便上传
-          mv bin/podman ../podman-binary
+          # 4. 执行编译
+          make podman
 
       - name: Verify Binary
         run: |
+          cd podman-src
           echo "=== File Info ==="
-          file podman-binary
+          file bin/podman
           echo "=== Dynamic Dependencies ==="
-          ldd podman-binary || echo "✅ Success: No dynamic dependencies found or only libc remains."
+          ldd bin/podman || echo "✅ Success: Static or minimal dependencies."
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: podman-static-no-gpgme
-          path: podman-binary
+          name: podman-static-fixed
+          path: podman-src/bin/podman
