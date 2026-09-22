@@ -13,17 +13,17 @@ jobs:
         run: |
           git clone --depth 1 --branch 1.3.4 --recurse-submodules \
             https://github.com/mumble-voip/mumble.git mumble-src
-          # 验证 CMakeLists.txt 存在
-          ls -la mumble-src/CMakeLists.txt
+          ls -la mumble-src/main.pro
 
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential cmake pkg-config wget \
+            build-essential pkg-config wget \
             qtbase5-dev qttools5-dev-tools libqt5svg5-dev libqt5sql5-sqlite \
             libasound2-dev libpulse-dev \
-            protobuf-compiler libprotobuf-dev
+            protobuf-compiler libprotobuf-dev \
+            libspeexdsp-dev libopus-dev
 
       - name: Build OpenSSL 1.1.1 Static
         run: |
@@ -34,44 +34,34 @@ jobs:
           make -j$(nproc)
           sudo make install_sw
 
-      - name: Configure Minimal Build
+      - name: Configure & Compile with qmake
+        working-directory: mumble-src
         env:
-          OPENSSL_ROOT_DIR: /opt/openssl-1.1.1
-          CMAKE_PREFIX_PATH: /opt/openssl-1.1.1
-        working-directory: mumble-src
+          OPENSSL_ROOT: /opt/openssl-1.1.1
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -Dportable=ON \
-            -Dtranslations=ON \
-            -Doverlay=OFF \
-            -Dplugins=OFF \
-            -Dg15=OFF \
-            -Dbonjour=OFF \
-            -Ddbus=OFF \
-            -Dupdate-check=OFF \
-            -Dcrash-report=OFF \
-            -Daudio-jack=OFF \
-            -Daudio-speechd=OFF \
-            -Dzeroconf=OFF \
-            -Dserver=OFF \
-            -Dgrpc=OFF \
-            -DOPENSSL_USE_STATIC_LIBS=ON
-
-      - name: Compile
-        working-directory: mumble-src
-        run: cmake --build build -j$(nproc)
+          # Mumble 1.3.4 使用 qmake，通过 CONFIG 禁用不需要的功能
+          qmake main.pro \
+            CONFIG+="release portable no-overlay no-plugins no-g15 no-bonjour no-dbus no-update-check no-crash-report no-jack no-speechd no-zeroconf no-grpc" \
+            INCLUDEPATH+=/opt/openssl-1.1.1/include \
+            LIBS+=-L/opt/openssl-1.1.1/lib \
+            PREFIX=/usr
+            
+          make -j$(nproc)
 
       - name: Package Portable Bundle
         working-directory: mumble-src
         run: |
           mkdir -p dist/Data
-          cp build/mumble dist/
-          if [ -d build/translations ]; then
-            cp -r build/translations dist/
+          cp release/mumble dist/
+          
+          # 复制语言包
+          if [ -d release/translations ]; then
+            cp -r release/translations dist/
           elif [ -d translations ]; then
             mkdir -p dist/translations
-            find translations -name "*.qm" -exec cp {} dist/translations/ \;
+            find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
+          
           touch dist/portable.ini
           cd dist && tar czf ../../mumble-1.3.4-portable-minimal-linux-x86_64.tar.gz .
 
