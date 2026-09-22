@@ -58,29 +58,27 @@ jobs:
         working-directory: mumble-src
         run: |
           mkdir -p dist/Data dist/lib dist/plugins/platforms dist/plugins/imageformats
-
           cp release/mumble dist/
 
-          # 收集主程序依赖
           EXCLUDE="libc\.so|libm\.so|libdl\.so|librt\.so|libpthread\.so|libstdc\+\+\.so|libgcc_s\.so|ld-linux"
           ldd release/mumble | grep "=> /" | awk '{print $3}' | \
             grep -vE "$EXCLUDE" | while read lib; do
               cp -L "$lib" dist/lib/ 2>/dev/null || true
             done
 
-          # 复制 Qt 插件并收集其依赖
           QT_PLUGIN_PATH=$(qmake -query QT_INSTALL_PLUGINS)
           cp "$QT_PLUGIN_PATH/platforms/libqxcb.so" dist/plugins/platforms/
           cp "$QT_PLUGIN_PATH/imageformats/libqsvg.so" dist/plugins/imageformats/ 2>/dev/null || true
 
           for plugin in dist/plugins/platforms/*.so dist/plugins/imageformats/*.so; do
-            [ -f "$plugin" ] && ldd "$plugin" | grep "=> /" | awk '{print $3}' | \
-              grep -vE "$EXCLUDE" | while read lib; do
-                cp -L "$lib" dist/lib/ 2>/dev/null || true
-              done
+            if [ -f "$plugin" ]; then
+              ldd "$plugin" | grep "=> /" | awk '{print $3}' | \
+                grep -vE "$EXCLUDE" | while read lib; do
+                  cp -L "$lib" dist/lib/ 2>/dev/null || true
+                done
+            fi
           done
 
-          # 语言包
           if [ -d release/translations ]; then
             cp -r release/translations dist/
           elif [ -d translations ]; then
@@ -88,7 +86,6 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
-          # 启动脚本（作为备用入口）
           cat > dist/Mumble.sh << 'LAUNCHER'
 #!/bin/sh
 DIR="$(cd "$(dirname "$0")" && pwd)"
