@@ -43,7 +43,7 @@ jobs:
           OPENSSL_ROOT: /opt/openssl-1.1.1
         run: |
           qmake main.pro \
-            CONFIG+="release portable no-overlay no-plugins no-g15 no-bonjour no-dbus no-update-check no-crash-report no-jack no-speechd no-zeroconf no-grpc" \
+            CONFIG+="release portable no-server no-overlay no-plugins no-g15 no-bonjour no-dbus no-update-check no-crash-report no-jack no-speechd no-zeroconf no-grpc" \
             INCLUDEPATH+=/opt/openssl-1.1.1/include \
             LIBS+=-L/opt/openssl-1.1.1/lib \
             PREFIX=/usr \
@@ -57,7 +57,6 @@ jobs:
           mkdir -p dist/Data
           cp release/mumble dist/
 
-          # 复制语言包（兼容多种输出位置）
           if [ -d release/translations ]; then
             cp -r release/translations dist/
           elif [ -d translations ]; then
@@ -65,9 +64,7 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
-          # 便携模式触发文件
           touch dist/portable.ini
-
           cd dist && tar czf ../../mumble-1.3.4-portable-minimal-linux-x86_64.tar.gz .
 
       - name: Upload Artifact
