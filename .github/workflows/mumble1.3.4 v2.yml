@@ -1,4 +1,4 @@
-name: Build Mumble 1.3.4 V2 Portable Minimal
+name: Build Mumble 1.3.4 Portable Minimal
 
 on:
   push:
@@ -8,18 +8,21 @@ on:
 jobs:
   build-linux-x86_64:
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
     steps:
       - name: Clone Mumble 1.3.4 Source
         run: |
+          apt-get update && apt-get install -y git ca-certificates
           git clone --depth 1 --branch 1.3.4 --recurse-submodules \
             https://github.com/mumble-voip/mumble.git mumble-src
           ls -la mumble-src/main.pro
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential pkg-config wget \
+          apt-get update
+          apt-get install -y \
+            build-essential pkg-config wget zip \
             qtbase5-dev qttools5-dev-tools libqt5svg5-dev libqt5sql5-sqlite \
             libasound2-dev libpulse-dev \
             protobuf-compiler libprotobuf-dev \
@@ -35,7 +38,7 @@ jobs:
           cd openssl-1.1.1w
           ./Configure linux-x86_64 no-shared --prefix=/opt/openssl-1.1.1 -fPIC
           make -j$(nproc)
-          sudo make install_sw
+          make install_sw
 
       - name: Configure & Compile with qmake
         working-directory: mumble-src
@@ -47,31 +50,37 @@ jobs:
             INCLUDEPATH+=/opt/openssl-1.1.1/include \
             LIBS+=-L/opt/openssl-1.1.1/lib \
             PREFIX=/usr \
-            QMAKE_CXXFLAGS+="-Wno-deprecated-declarations"
+            QMAKE_CXXFLAGS+="-Wno-deprecated-declarations" \
+            QMAKE_LFLAGS+="-Wl,-rpath,'\$ORIGIN/lib'"
           make -j$(nproc)
 
       - name: Package Self-Contained Bundle
         working-directory: mumble-src
         run: |
-          mkdir -p dist/Data dist/lib dist/plugins
+          mkdir -p dist/Data dist/lib dist/plugins/platforms dist/plugins/imageformats
 
-          # 1. 复制主二进制
           cp release/mumble dist/
 
-          # 2. 收集所有运行时依赖（排除 glibc/libstdc++/ld-linux）
+          # 收集主程序依赖
           EXCLUDE="libc\.so|libm\.so|libdl\.so|librt\.so|libpthread\.so|libstdc\+\+\.so|libgcc_s\.so|ld-linux"
           ldd release/mumble | grep "=> /" | awk '{print $3}' | \
             grep -vE "$EXCLUDE" | while read lib; do
               cp -L "$lib" dist/lib/ 2>/dev/null || true
             done
 
-          # 3. 复制 Qt 平台插件（必须！否则 GUI 无法启动）
+          # 复制 Qt 插件并收集其依赖
           QT_PLUGIN_PATH=$(qmake -query QT_INSTALL_PLUGINS)
-          mkdir -p dist/plugins/platforms dist/plugins/imageformats
-          cp "$QT_PLUGIN_PATH/platforms/libqxcb.so" dist/plugins/platforms/ 2>/dev/null || true
+          cp "$QT_PLUGIN_PATH/platforms/libqxcb.so" dist/plugins/platforms/
           cp "$QT_PLUGIN_PATH/imageformats/libqsvg.so" dist/plugins/imageformats/ 2>/dev/null || true
 
-          # 4. 复制语言包
+          for plugin in dist/plugins/platforms/*.so dist/plugins/imageformats/*.so; do
+            [ -f "$plugin" ] && ldd "$plugin" | grep "=> /" | awk '{print $3}' | \
+              grep -vE "$EXCLUDE" | while read lib; do
+                cp -L "$lib" dist/lib/ 2>/dev/null || true
+              done
+          done
+
+          # 语言包
           if [ -d release/translations ]; then
             cp -r release/translations dist/
           elif [ -d translations ]; then
@@ -79,20 +88,19 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
-          # 5. 创建自包含启动器
+          # 启动脚本（作为备用入口）
           cat > dist/Mumble.sh << 'LAUNCHER'
-          #!/bin/sh
-          DIR="$(cd "$(dirname "$0")" && pwd)"
-          export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
-          export QT_PLUGIN_PATH="$DIR/plugins"
-          exec "$DIR/mumble" "$@"
-          LAUNCHER
+#!/bin/sh
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="$DIR/lib"
+export QT_PLUGIN_PATH="$DIR/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
+export QT_NO_SYSTEM_PLUGIN_CACHE=1
+exec "$DIR/mumble" "$@"
+LAUNCHER
           chmod +x dist/Mumble.sh
 
-          # 6. 便携模式触发文件
           touch dist/portable.ini
-
-          # 7. 打包为 zip
           cd dist && zip -r ../mumble-1.3.4-portable-linux-x86_64.zip .
 
       - name: Upload Artifact
