@@ -24,7 +24,8 @@ jobs:
             libasound2-dev libpulse-dev \
             protobuf-compiler libprotobuf-dev \
             libspeexdsp-dev libopus-dev \
-            libsndfile1-dev
+            libsndfile1-dev \
+            libboost-dev
 
       - name: Build OpenSSL 1.1.1 Static
         run: |
@@ -53,10 +54,10 @@ jobs:
         run: |
           mkdir -p dist/Data
 
-          # 复制主二进制（qmake release 构建输出在 release/ 目录）
+          # 复制主二进制
           cp release/mumble dist/
 
-          # 复制语言包（检查多个可能位置）
+          # 复制语言包
           if [ -d release/translations ]; then
             cp -r release/translations dist/
           elif [ -d translations ]; then
