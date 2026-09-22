@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive  # ✅ 全局禁用 apt 交互式提示，解决 tzdata 卡死问题
 
     steps:
       - name: Install git and clone source
@@ -101,15 +103,16 @@ jobs:
             find . -name "*.qm" -exec cp {} dist/translations/ \; 2>/dev/null || true
           fi
 
-          cat > dist/Mumble.sh << 'EOF'
-          #!/bin/sh
-          DIR="$(cd "$(dirname "$0")" && pwd)"
-          export LD_LIBRARY_PATH="$DIR/lib"
-          export QT_PLUGIN_PATH="$DIR/plugins"
-          export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
-          export QT_NO_SYSTEM_PLUGIN_CACHE=1
-          exec "$DIR/mumble" "$@"
-          EOF
+          # ✅ 修复 heredoc 缩进问题：结束符 SCRIPT_EOF 必须顶格写
+          cat > dist/Mumble.sh << 'SCRIPT_EOF'
+#!/bin/sh
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export LD_LIBRARY_PATH="$DIR/lib"
+export QT_PLUGIN_PATH="$DIR/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$DIR/plugins/platforms"
+export QT_NO_SYSTEM_PLUGIN_CACHE=1
+exec "$DIR/mumble" "$@"
+SCRIPT_EOF
 
           chmod +x dist/Mumble.sh
           touch dist/portable.ini
