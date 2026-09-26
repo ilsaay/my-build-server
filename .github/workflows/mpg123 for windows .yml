@@ -1,0 +1,66 @@
+name: Build mpg123 1.25.13 Windows x86
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            gcc-mingw-w64-i686 \
+            g++-mingw-w64-i686 \
+            binutils-mingw-w64-i686 \
+            make \
+            wget \
+            xz-utils \
+            pkg-config
+      - name: Download mpg123 1.25.13 source
+        run: |
+          wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
+          tar xjf mpg123-1.25.13.tar.bz2
+      - name: Configure (cross-compile for Windows x86)
+        run: |
+          cd mpg123-1.25.13
+          ./configure \
+            --host=i686-w64-mingw32 \
+            --target=i686-w64-mingw32 \
+            --build=x86_64-linux-gnu \
+            --disable-shared \
+            --enable-static \
+            --disable-network \
+            --disable-ipv6 \
+            --with-cpu=generic \
+            --with-audio=win32 \
+            --with-default-audio=win32 \
+            --disable-lfs \
+            CFLAGS="-O2 -s -static" \
+            LDFLAGS="-static"
+      - name: Build
+        run: |
+          cd mpg123-1.25.13
+          make -j$(nproc)
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp mpg123-1.25.13/src/mpg123.exe artifacts/ || true
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/ || true
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.dll.a artifacts/ || true
+          find mpg123-1.25.13 -name "*.dll" -exec cp {} artifacts/ \; || true
+          ls -la artifacts/
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpg123-1.25.13-windows-x86
+          path: artifacts/  [保持代码不变，编译linux二进制版，并兼容linux所有版本和发行版]
