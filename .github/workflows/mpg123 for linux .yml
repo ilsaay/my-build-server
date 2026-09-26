@@ -1,0 +1,65 @@
+name: Build mpg123 1.25.13 Linux x86_64 static
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      TZ: Etc/UTC
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            gcc \
+            g++ \
+            make \
+            wget \
+            xz-utils \
+            bzip2 \
+            pkg-config \
+            musl-tools
+      - name: Download mpg123 1.25.13 source
+        run: |
+          wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
+          tar xjf mpg123-1.25.13.tar.bz2
+      - name: Configure (static, musl)
+        run: |
+          cd mpg123-1.25.13
+          ./configure \
+            --host=x86_64-linux-musl \
+            --build=x86_64-linux-gnu \
+            --disable-shared \
+            --enable-static \
+            --disable-network \
+            --disable-ipv6 \
+            --with-cpu=generic \
+            --with-audio=alsa \
+            --with-default-audio=alsa \
+            --disable-lfs \
+            CC=musl-gcc \
+            CFLAGS="-O2 -static" \
+            LDFLAGS="-static"
+      - name: Build
+        run: |
+          cd mpg123-1.25.13
+          make -j$(nproc)
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          cp mpg123-1.25.13/src/mpg123 artifacts/ || true
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/ || true
+          ls -la artifacts/
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpg123-1.25.13-linux-x86_64-static
+          path: artifacts/
