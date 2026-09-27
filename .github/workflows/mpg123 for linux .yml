@@ -32,7 +32,7 @@ jobs:
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
 
-      - name: Configure (Linux x86_64, dynamic)
+      - name: Configure (Linux x86_64, dynamic, ALSA)
         run: |
           cd mpg123-1.25.13
           ./configure \
@@ -46,7 +46,7 @@ jobs:
             --with-audio=alsa \
             --with-default-audio=alsa \
             --disable-lfs \
-            CFLAGS="-O2 -s -fno-plt" \
+            CFLAGS="-O2 -s" \
             LDFLAGS=""
 
       - name: Build
@@ -57,11 +57,17 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          cp mpg123-1.25.13/src/mpg123 artifacts/ || true
+          # 关键：复制真 ELF，不是 libtool wrapper
+          cp mpg123-1.25.13/src/.libs/mpg123 artifacts/mpg123 || true
           cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/ || true
           cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/ || true
           cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/ || true
           ls -la artifacts/
+
+      - name: Verify
+        run: |
+          file artifacts/mpg123 || true
+          ldd artifacts/mpg123 || true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
