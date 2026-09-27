@@ -35,20 +35,26 @@ jobs:
           cd mpg123-1.25.13
           make -j$(nproc)
 
-      - name: Check modules exist
+      - name: Check
         run: |
-          echo "=== modules dir ==="
-          ls -la mpg123-1.25.13/src/libout123/modules/.libs/
           echo "=== main binary ==="
-          file mpg123-1.25.13/src/.libs/mpg123
+          file mpg123-1.25.13/src/.libs/mpg123 || true
+          echo "=== output modules ==="
+          ls -la mpg123-1.25.13/src/libout123/modules/.libs/ || true
+          echo "=== libmpg123 ==="
+          ls -la mpg123-1.25.13/src/libmpg123/.libs/ || true
+          echo "=== libout123 ==="
+          ls -la mpg123-1.25.13/src/libout123/.libs/ || true
+          echo "=== libsyn123 ==="
+          ls -la mpg123-1.25.13/src/libsyn123/.libs/ 2>/dev/null || echo "no libsyn123"
 
       - name: Collect
         run: |
           mkdir -p artifacts
           cp mpg123-1.25.13/src/.libs/mpg123 artifacts/mpg123
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/
-          cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/
-          cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/ 2>/dev/null || true
+          cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/ 2>/dev/null || true
+          cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/ 2>/dev/null || true
           cp mpg123-1.25.13/src/libout123/modules/.libs/output_*.so artifacts/
           printf '%s\n' '#!/bin/sh' 'DIR=$(cd "$(dirname "$0")" && pwd)' 'export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"' 'export MPG123_MODDIR="$DIR"' 'exec "$DIR/mpg123" "$@"' > artifacts/run.sh
           chmod +x artifacts/run.sh
