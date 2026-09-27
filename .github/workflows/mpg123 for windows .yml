@@ -63,4 +63,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mpg123-1.25.13-windows-x86
-          path: artifacts/  [保持代码不变，编译linux二进制版，并兼容linux所有版本和发行版]
+          path: artifacts/
