@@ -11,6 +11,10 @@ on:
         description: 'Bootstrap Rust version'
         required: false
         default: '1.62.0'
+      jobs:
+        description: 'Parallel jobs'
+        required: false
+        default: '2'
 
 permissions:
   contents: write
@@ -42,11 +46,15 @@ jobs:
 
       - name: Add swap (avoid OOM during LLVM build)
         run: |
+          swapoff /swapfile 2>/dev/null || true
+          swapoff -a 2>/dev/null || true
+          rm -f /swapfile
           fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
           chmod 600 /swapfile
           mkswap /swapfile
-          swapon /swapfile
+          swapon /swapfile || echo "swapon failed, continuing without swap"
           free -h
+          swapon --show || true
 
       - name: Clone Rust source
         run: |
@@ -89,7 +97,7 @@ jobs:
       - name: Build Rust (stage 2)
         working-directory: rust
         run: |
-          ./x.py build --stage 2
+          ./x.py build --stage 2 -j ${{ github.event.inputs.jobs || '2' }}
 
       - name: Install
         working-directory: rust
