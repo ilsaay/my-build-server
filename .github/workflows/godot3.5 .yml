@@ -38,6 +38,7 @@ jobs:
             libssl-dev \
             wget \
             unzip \
+            zip \
             python3
 
       - name: Download Godot 3.5 source
@@ -83,15 +84,26 @@ jobs:
             module_websocket_enabled=no \
             module_mbedtls_enabled=no
 
-      - name: Collect artifact
+      - name: Package
         run: |
           mkdir -p artifacts
-          cp godot/bin/godot.x11.opt.tools.64 artifacts/godot-3.5-linux-x86_64 || true
-          cp godot/bin/godot.x11.opt.tools.32 artifacts/godot-3.5-linux-x86_32 || true
-          ls -la artifacts/
+          if [ -f godot/bin/godot.x11.opt.tools.64 ]; then
+            cp godot/bin/godot.x11.opt.tools.64 artifacts/godot-3.5-linux-x86_64
+          fi
+          if [ -f godot/bin/godot.x11.opt.tools.32 ]; then
+            cp godot/bin/godot.x11.opt.tools.32 artifacts/godot-3.5-linux-x86_32
+          fi
+          cd artifacts
+          if [ -f godot-3.5-linux-x86_64 ]; then
+            zip godot-3.5-linux-x86_64-2d.zip godot-3.5-linux-x86_64
+          fi
+          if [ -f godot-3.5-linux-x86_32 ]; then
+            zip godot-3.5-linux-x86_32-2d.zip godot-3.5-linux-x86_32
+          fi
+          ls -la
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: godot-3.5-linux-x86_64-2d
+          name: godot-3.5-linux-2d
           path: artifacts/
