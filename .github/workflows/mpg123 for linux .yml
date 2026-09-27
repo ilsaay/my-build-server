@@ -69,19 +69,11 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-
-          # 真 ELF 可执行文件
           cp mpg123-1.25.13/src/.libs/mpg123 artifacts/mpg123 || true
-
-          # 主库
           cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/ || true
           cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/ || true
           cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/ || true
-
-          # 关键：输出驱动模块
           cp mpg123-1.25.13/src/libout123/modules/.libs/libout123_*.so artifacts/ || true
-
-          # 写一个 run.sh 一起打包
           cat > artifacts/run.sh <<'EOF'
 #!/bin/sh
 DIR=$(cd "$(dirname "$0")" && pwd)
@@ -90,7 +82,6 @@ export MPG123_MODDIR="$DIR"
 exec "$DIR/mpg123" "$@"
 EOF
           chmod +x artifacts/run.sh
-
           echo "=== artifacts ==="
           ls -la artifacts/
 
