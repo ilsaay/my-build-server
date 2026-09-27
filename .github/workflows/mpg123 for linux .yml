@@ -27,7 +27,26 @@ jobs:
             wget \
             xz-utils \
             pkg-config \
-            libasound2-dev:i386
+            libasound2:i386 \
+            libasound2-dev:i386 \
+            libc6-dev:i386
+
+      - name: Diagnose 32-bit ALSA
+        run: |
+          echo "=== foreign arch ==="
+          dpkg --print-foreign-architectures
+          echo "=== libasound files ==="
+          ls -la /usr/lib/i386-linux-gnu/libasound* || true
+          echo "=== pkg-config libs ==="
+          PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig pkg-config --libs alsa || true
+          echo "=== pkg-config cflags ==="
+          PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig pkg-config --cflags alsa || true
+          echo "=== manual link test ==="
+          cat > /tmp/test_alsa.c <<'EOF'
+          #include <alsa/asoundlib.h>
+          int main(){ snd_pcm_t *p; return snd_pcm_open(&p, "default", SND_PCM_STREAM_PLAYBACK, 0); }
+          EOF
+          i686-linux-gnu-gcc -m32 -o /tmp/test_alsa /tmp/test_alsa.c -L/usr/lib/i386-linux-gnu -lasound && echo "LINK OK" || echo "LINK FAILED"
 
       - name: Download mpg123 1.25.13 source
         run: |
