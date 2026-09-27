@@ -17,7 +17,6 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          dpkg --add-architecture i386
           apt-get update
           apt-get install -y \
             build-essential \
@@ -26,16 +25,14 @@ jobs:
             make \
             wget \
             xz-utils \
-            pkg-config \
-            libasound2-dev:i386 \
-            zlib1g-dev:i386
+            pkg-config
 
       - name: Download mpg123 1.25.13 source
         run: |
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
 
-      - name: Configure (Linux x86)
+      - name: Configure (Linux x86, dummy audio)
         run: |
           cd mpg123-1.25.13
           ./configure \
@@ -46,8 +43,8 @@ jobs:
             --disable-network \
             --disable-ipv6 \
             --with-cpu=generic \
-            --with-audio=alsa \
-            --with-default-audio=alsa \
+            --with-audio=dummy \
+            --with-default-audio=dummy \
             --disable-lfs \
             CFLAGS="-O2 -s -m32" \
             LDFLAGS="-static -m32"
