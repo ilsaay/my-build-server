@@ -1,4 +1,4 @@
-name: Build mpg123 1.25.13 Linux x86_64 static
+name: Build mpg123 1.25.13 Linux x86
 
 on:
   workflow_dispatch:
@@ -19,23 +19,26 @@ jobs:
         run: |
           apt-get update
           apt-get install -y \
-            gcc \
-            g++ \
+            build-essential \
+            gcc-multilib \
+            g++-multilib \
             make \
             wget \
             xz-utils \
-            bzip2 \
             pkg-config \
-            musl-tools
+            libasound2-dev:i386 \
+            zlib1g-dev:i386
+
       - name: Download mpg123 1.25.13 source
         run: |
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
-      - name: Configure (static, musl)
+
+      - name: Configure (Linux x86)
         run: |
           cd mpg123-1.25.13
           ./configure \
-            --host=x86_64-linux-musl \
+            --host=i686-linux-gnu \
             --build=x86_64-linux-gnu \
             --disable-shared \
             --enable-static \
@@ -45,21 +48,25 @@ jobs:
             --with-audio=alsa \
             --with-default-audio=alsa \
             --disable-lfs \
-            CC=musl-gcc \
-            CFLAGS="-O2 -static" \
-            LDFLAGS="-static"
+            CFLAGS="-O2 -s -m32" \
+            LDFLAGS="-static -m32"
+
       - name: Build
         run: |
           cd mpg123-1.25.13
           make -j$(nproc)
+
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
           cp mpg123-1.25.13/src/mpg123 artifacts/ || true
           cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/ || true
+          cp mpg123-1.25.13/src/libout123/.libs/libout123.a artifacts/ || true
+          cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.a artifacts/ || true
           ls -la artifacts/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mpg123-1.25.13-linux-x86_64-static
+          name: mpg123-1.25.13-linux-x86
           path: artifacts/
