@@ -1,4 +1,4 @@
-name: Build mpg123 1.25.13 Linux x86_64
+name: Build mpg123 1.25.13 Linux x86_64 static
 
 on:
   workflow_dispatch:
@@ -24,22 +24,21 @@ jobs:
             wget \
             xz-utils \
             pkg-config \
-            libasound2-dev \
-            libc6-dev
+            libasound2-dev
 
       - name: Download mpg123 1.25.13 source
         run: |
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
 
-      - name: Configure (Linux x86_64, dynamic, ALSA)
+      - name: Configure (static, built-in ALSA)
         run: |
           cd mpg123-1.25.13
           ./configure \
             --host=x86_64-linux-gnu \
             --build=x86_64-linux-gnu \
-            --disable-static \
-            --enable-shared \
+            --disable-shared \
+            --enable-static \
             --disable-network \
             --disable-ipv6 \
             --with-cpu=generic \
@@ -47,7 +46,7 @@ jobs:
             --with-default-audio=alsa \
             --disable-lfs \
             CFLAGS="-O2 -s" \
-            LDFLAGS=""
+            LDFLAGS="-static"
 
       - name: Build
         run: |
@@ -57,11 +56,9 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p artifacts
-          # 关键：复制真 ELF，不是 libtool wrapper
           cp mpg123-1.25.13/src/.libs/mpg123 artifacts/mpg123 || true
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/ || true
-          cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/ || true
-          cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/ || true
+          cp mpg123-1.25.13/src/mpg123 artifacts/mpg123-wrapper || true
+          find mpg123-1.25.13 -name "libout123_*.so" -exec cp {} artifacts/ \; || true
           ls -la artifacts/
 
       - name: Verify
@@ -72,5 +69,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mpg123-1.25.13-linux-x86_64
+          name: mpg123-1.25.13-linux-x86_64-static
           path: artifacts/
