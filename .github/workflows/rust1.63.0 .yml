@@ -40,6 +40,14 @@ jobs:
           ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
           ln -sf /usr/bin/python3 /usr/bin/python || true
 
+      - name: Add swap (avoid OOM during LLVM build)
+        run: |
+          fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          free -h
+
       - name: Clone Rust source
         run: |
           git clone --branch ${{ github.event.inputs.rust_version || '1.63.0' }} \
@@ -69,7 +77,13 @@ jobs:
           compiler-docs = false
           extended = true
           tools = ["rustc"]
+
+          [install]
           prefix = "/opt/rust-1.63.0"
+
+          [rust]
+          debuginfo-level = 0
+          debug = false
           EOF
 
       - name: Build Rust (stage 2)
