@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y build-essential make wget xz-utils pkg-config libasound2-dev
+          apt-get install -y build-essential make wget xz-utils pkg-config libasound2-dev file
 
       - name: Download source
         run: |
@@ -39,8 +39,6 @@ jobs:
         run: |
           echo "=== modules dir ==="
           ls -la mpg123-1.25.13/src/libout123/modules/.libs/
-          echo "=== find modules ==="
-          find mpg123-1.25.13 -name "libout123_*.so"
           echo "=== main binary ==="
           file mpg123-1.25.13/src/.libs/mpg123
 
@@ -51,7 +49,7 @@ jobs:
           cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/
           cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/
           cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/
-          find mpg123-1.25.13 -name "libout123_*.so" -exec cp {} artifacts/ \;
+          cp mpg123-1.25.13/src/libout123/modules/.libs/output_*.so artifacts/
           printf '%s\n' '#!/bin/sh' 'DIR=$(cd "$(dirname "$0")" && pwd)' 'export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"' 'export MPG123_MODDIR="$DIR"' 'exec "$DIR/mpg123" "$@"' > artifacts/run.sh
           chmod +x artifacts/run.sh
           echo "=== artifacts ==="
