@@ -1,153 +1,44 @@
-name: Build Rust 1.63.0 (rustc only, compat-first)
+name: Pure GitHub Actions Build
 
 on:
-  workflow_dispatch:
-    inputs:
-      rust_version:
-        description: 'Rust version tag'
-        required: false
-        default: '1.63.0'
-      bootstrap_version:
-        description: 'Bootstrap Rust version'
-        required: false
-        default: '1.62.0'
-      jobs:
-        description: 'Parallel jobs'
-        required: false
-        default: '2'
-
-permissions:
-  contents: write
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 支持在 GitHub 页面上点按钮手动触发编译
 
 jobs:
-  build:
+  build-static:
     runs-on: ubuntu-latest
-    container:
-      image: centos:7
-      options: --user root
 
     steps:
-      - name: Fix CentOS 7 yum repos (EOL -> vault)
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install musl-tools
         run: |
-          sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-*.repo
-          sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
-          yum clean all
-          yum makecache
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
 
-      - name: Install system dependencies
-        run: |
-          yum install -y \
-            gcc gcc-c++ make cmake3 python3 git curl \
-            openssl-devel zlib-devel libffi-devel \
-            which file tar gzip xz bzip2 patch \
-            perl-core diffutils
-          ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
-          ln -sf /usr/bin/python3 /usr/bin/python || true
+      - name: Setup Rust 1.63.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.63.0'
+          targets: x86_64-unknown-linux-musl
 
-      - name: Add swap (avoid OOM during LLVM build)
-        run: |
-          swapoff /swapfile 2>/dev/null || true
-          swapoff -a 2>/dev/null || true
-          rm -f /swapfile
-          fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
-          chmod 600 /swapfile
-          mkswap /swapfile
-          swapon /swapfile || echo "swapon failed, continuing without swap"
-          free -h
-          swapon --show || true
-
-      - name: Clone Rust source
-        run: |
-          git clone --branch ${{ github.event.inputs.rust_version || '1.63.0' }} \
-            https://github.com/rust-lang/rust.git rust
-          cd rust
-          git submodule update --init --recursive
-          git submodule foreach --recursive git reset --hard
-          git submodule foreach --recursive git clean -fdx
-
-      - name: Install bootstrap Rust
-        run: |
-          export RUSTUP_HOME=/root/.rustup
-          export CARGO_HOME=/root/.cargo
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain ${{ github.event.inputs.bootstrap_version || '1.62.0' }} --profile minimal
-          echo "$CARGO_HOME/bin" >> $GITHUB_PATH
-
-      - name: Configure Rust build
-        working-directory: rust
-        run: |
-          cat > config.toml <<'EOF'
-          [build]
-          build = "x86_64-unknown-linux-gnu"
-          host = ["x86_64-unknown-linux-gnu"]
-          target = ["x86_64-unknown-linux-gnu"]
-          docs = false
-          compiler-docs = false
-          extended = true
-          tools = ["rustc"]
-
-          [install]
-          prefix = "/opt/rust-1.63.0"
-
-          [rust]
-          debuginfo-level = 0
-          debug = false
-          EOF
-
-      - name: Build Rust (stage 2)
-        working-directory: rust
-        run: |
-          ./x.py build --stage 2 -j ${{ github.event.inputs.jobs || '2' }}
-
-      - name: Install
-        working-directory: rust
-        run: |
-          ./x.py install
-
-      - name: Slim down
-        run: |
-          set -e
-          PREFIX=/opt/rust-1.63.0
-          cd "$PREFIX"
-
-          rm -f bin/cargo bin/rustdoc bin/rustfmt bin/cargo-clippy bin/clippy-driver
-          rm -f bin/rls bin/rust-analyzer
-          rm -rf share/doc share/man
-          rm -rf lib/rustlib/src
-          rm -rf lib/rustlib/*/tests
-
-          cd lib/rustlib
-          for d in */; do
-            if [ "$d" != "x86_64-unknown-linux-gnu/" ] && [ "$d" != "etc/" ]; then
-              rm -rf "$d"
-            fi
-          done
-
-          cd "$PREFIX"
-          strip bin/rustc || true
-          find lib -maxdepth 1 -name '*.so' -exec strip {} \; || true
-
-      - name: Verify
-        run: |
-          export PATH=/opt/rust-1.63.0/bin:$PATH
-          rustc --version
-          echo 'fn main(){println!("hello");}' > /tmp/t.rs
-          rustc /tmp/t.rs -o /tmp/t
-          /tmp/t
-
-      - name: Package
-        run: |
-          cd /opt
-          tar -czf rust-1.63.0-rustc-only-centos7.tar.gz rust-1.63.0
-          ls -lh rust-1.63.0-rustc-only-centos7.tar.gz
-
-      - name: Upload to Release
+      - name: Build & Optimize Binary
+        # 直接通过环境变量注入所有体积裁剪和性能优化选项，无需改动 Cargo.toml
         env:
-          GH_TOKEN: ${{ github.token }}
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: 'z'        # 优先优化二进制体积
+          CARGO_PROFILE_RELEASE_LTO: 'true'          # 开启全局 LTO
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'   # 提升 LTO 优化效果
+          CARGO_PROFILE_RELEASE_PANIC: 'abort'       # 剔除 unwind 展开代码
+          RUSTFLAGS: '-C strip=symbols'              # 剥离所有调试符号
         run: |
-          gh release create v1.63.0-rustc \
-            /opt/rust-1.63.0-rustc-only-centos7.tar.gz \
-            --title "Rust 1.63.0 rustc-only (CentOS 7)" \
-            --notes "compat-first build, rustc only" || \
-          gh release upload v1.63.0-rustc \
-            /opt/rust-1.63.0-rustc-only-centos7.tar.gz --clobber
+          # --no-default-features 会自动剔除不必要的默认功能特性
+          cargo build --release --target x86_64-unknown-linux-musl --no-default-features
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-static-binary
+          # 提示：请将下面的 your_app_name 替换为你 Cargo.toml 里的 [package] name
+          path: target/x86_64-unknown-linux-musl/release/your_app_name
