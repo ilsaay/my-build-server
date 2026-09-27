@@ -1,4 +1,4 @@
-name: Build mpg123 1.25.13 Linux x86
+name: Build mpg123 1.25.13 Linux x86 (ALSA only)
 
 on:
   workflow_dispatch:
@@ -17,6 +17,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
+          dpkg --add-architecture i386
           apt-get update
           apt-get install -y \
             build-essential \
@@ -25,16 +26,19 @@ jobs:
             make \
             wget \
             xz-utils \
-            pkg-config
+            pkg-config \
+            libasound2-dev:i386
 
       - name: Download mpg123 1.25.13 source
         run: |
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
 
-      - name: Configure (Linux x86, dummy audio)
+      - name: Configure (Linux x86, ALSA only)
         run: |
           cd mpg123-1.25.13
+          export PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig
+          export PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig
           ./configure \
             --host=i686-linux-gnu \
             --build=x86_64-linux-gnu \
@@ -43,11 +47,11 @@ jobs:
             --disable-network \
             --disable-ipv6 \
             --with-cpu=generic \
-            --with-audio=dummy \
-            --with-default-audio=dummy \
+            --with-audio=alsa \
+            --with-default-audio=alsa \
             --disable-lfs \
             CFLAGS="-O2 -s -m32" \
-            LDFLAGS="-static -m32"
+            LDFLAGS="-static -m32 -L/usr/lib/i386-linux-gnu"
 
       - name: Build
         run: |
@@ -66,5 +70,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mpg123-1.25.13-linux-x86
+          name: mpg123-1.25.13-linux-x86-alsa
           path: artifacts/
