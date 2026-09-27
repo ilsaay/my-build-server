@@ -1,44 +1,72 @@
-name: Pure GitHub Actions Build
+name: Pure Single-YAML Rust Build
 
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # 支持在 GitHub 页面上点按钮手动触发编译
+  workflow_dispatch: # 支持在 GitHub 页面上点按钮手动触发
 
 jobs:
   build-static:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
+      # 1. 安装 musl 编译工具
       - name: Install musl-tools
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
+      # 2. 配置 Rust 1.63.0 环境及 musl 目标
       - name: Setup Rust 1.63.0
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.63.0'
           targets: x86_64-unknown-linux-musl
 
+      # 3. 直接在 YAML 中生成 Cargo.toml 和 Rust 源码
+      - name: Create Rust Project Files
+        run: |
+          mkdir -p src
+
+          # 写入 Cargo.toml（在此修改你的项目依赖和名称）
+          cat << 'EOF' > Cargo.toml
+          [package]
+          name = "my_app"
+          version = "0.1.0"
+          edition = "2021"
+
+          [dependencies]
+          # 在这里填入你的依赖项，例如：
+          # serde = "1.0"
+          EOF
+
+          # 写入 src/main.rs（把你的 Rust 代码直接粘贴在这里）
+          cat << 'EOF' > src/main.rs
+          fn main() {
+              println!("Hello from static Rust 1.63.0!");
+          }
+          EOF
+
+      # 4. 优化编译与静态链接
       - name: Build & Optimize Binary
-        # 直接通过环境变量注入所有体积裁剪和性能优化选项，无需改动 Cargo.toml
         env:
-          CARGO_PROFILE_RELEASE_OPT_LEVEL: 'z'        # 优先优化二进制体积
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: 'z'        # 体积优先优化
           CARGO_PROFILE_RELEASE_LTO: 'true'          # 开启全局 LTO
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'   # 提升 LTO 优化效果
-          CARGO_PROFILE_RELEASE_PANIC: 'abort'       # 剔除 unwind 展开代码
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'   # 提升 LTO 效果
+          CARGO_PROFILE_RELEASE_PANIC: 'abort'       # 剔除 unwind 代码
           RUSTFLAGS: '-C strip=symbols'              # 剥离所有调试符号
         run: |
-          # --no-default-features 会自动剔除不必要的默认功能特性
           cargo build --release --target x86_64-unknown-linux-musl --no-default-features
 
-      - name: Upload Binary Artifact
+      # 5. 自动打包为 tar.gz
+      - name: Compress Binary to tar.gz
+        run: |
+          cd target/x86_64-unknown-linux-musl/release/
+          tar -czvf my_app-linux-x86_64.tar.gz my_app
+
+      # 6. 上传压缩包提供下载
+      - name: Upload Compressed Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-static-binary
-          # 提示：请将下面的 your_app_name 替换为你 Cargo.toml 里的 [package] name
-          path: target/x86_64-unknown-linux-musl/release/your_app_name
+          name: my_app-linux-x86_64-static
+          path: target/x86_64-unknown-linux-musl/release/my_app-linux-x86_64.tar.gz
