@@ -84,22 +84,21 @@ jobs:
             module_websocket_enabled=no \
             module_mbedtls_enabled=no
 
+      - name: Check bin
+        run: |
+          ls -la godot/bin/ || true
+
       - name: Package
         run: |
           mkdir -p artifacts
-          if [ -f godot/bin/godot.x11.opt.tools.64 ]; then
-            cp godot/bin/godot.x11.opt.tools.64 artifacts/godot-3.5-linux-x86_64
-          fi
-          if [ -f godot/bin/godot.x11.opt.tools.32 ]; then
-            cp godot/bin/godot.x11.opt.tools.32 artifacts/godot-3.5-linux-x86_32
-          fi
+          find godot/bin -maxdepth 1 -type f -name "godot.*" -exec cp {} artifacts/ \;
+          ls -la artifacts/
           cd artifacts
-          if [ -f godot-3.5-linux-x86_64 ]; then
-            zip godot-3.5-linux-x86_64-2d.zip godot-3.5-linux-x86_64
-          fi
-          if [ -f godot-3.5-linux-x86_32 ]; then
-            zip godot-3.5-linux-x86_32-2d.zip godot-3.5-linux-x86_32
-          fi
+          for f in godot.*; do
+            if [ -f "$f" ]; then
+              zip "${f}.zip" "$f"
+            fi
+          done
           ls -la
 
       - name: Upload artifact
