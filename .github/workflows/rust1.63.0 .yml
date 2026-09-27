@@ -12,6 +12,9 @@ on:
         required: false
         default: '1.62.0'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,6 +23,13 @@ jobs:
       options: --user root
 
     steps:
+      - name: Fix CentOS 7 yum repos (EOL -> vault)
+        run: |
+          sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-*.repo
+          sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*.repo
+          yum clean all
+          yum makecache
+
       - name: Install system dependencies
         run: |
           yum install -y \
@@ -30,13 +40,10 @@ jobs:
           ln -sf /usr/bin/cmake3 /usr/bin/cmake || true
           ln -sf /usr/bin/python3 /usr/bin/python || true
 
-      - name: Checkout Rust source
-        uses: actions/checkout@v4
-        with:
-          repository: rust-lang/rust
-          ref: ${{ github.event.inputs.rust_version || '1.63.0' }}
-          path: rust
-          fetch-depth: 1
+      - name: Clone Rust source
+        run: |
+          git clone --depth 1 --branch ${{ github.event.inputs.rust_version || '1.63.0' }} \
+            https://github.com/rust-lang/rust.git rust
 
       - name: Install bootstrap Rust
         run: |
@@ -66,32 +73,23 @@ jobs:
         run: |
           ./x.py build --stage 2
 
-      - name: Install to /opt/rust-1.63.0
+      - name: Install
         working-directory: rust
         run: |
           ./x.py install
 
-      - name: Slim down (remove unused)
+      - name: Slim down
         run: |
           set -e
           PREFIX=/opt/rust-1.63.0
           cd "$PREFIX"
 
-          # 删除工具
           rm -f bin/cargo bin/rustdoc bin/rustfmt bin/cargo-clippy bin/clippy-driver
           rm -f bin/rls bin/rust-analyzer
-          rm -f bin/cargo-* bin/rust-*
-
-          # 删除文档 / man
           rm -rf share/doc share/man
-
-          # 删除源码
           rm -rf lib/rustlib/src
-
-          # 删除测试
           rm -rf lib/rustlib/*/tests
 
-          # 只保留本机 target
           cd lib/rustlib
           for d in */; do
             if [ "$d" != "x86_64-unknown-linux-gnu/" ] && [ "$d" != "etc/" ]; then
@@ -99,12 +97,11 @@ jobs:
             fi
           done
 
-          # strip 二进制和动态库（不 strip .rlib）
           cd "$PREFIX"
           strip bin/rustc || true
           find lib -maxdepth 1 -name '*.so' -exec strip {} \; || true
 
-      - name: Verify rustc
+      - name: Verify
         run: |
           export PATH=/opt/rust-1.63.0/bin:$PATH
           rustc --version
@@ -118,9 +115,13 @@ jobs:
           tar -czf rust-1.63.0-rustc-only-centos7.tar.gz rust-1.63.0
           ls -lh rust-1.63.0-rustc-only-centos7.tar.gz
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rust-1.63.0-rustc-only-centos7
-          path: /opt/rust-1.63.0-rustc-only-centos7.tar.gz
-          retention-days: 30
+      - name: Upload to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.63.0-rustc \
+            /opt/rust-1.63.0-rustc-only-centos7.tar.gz \
+            --title "Rust 1.63.0 rustc-only (CentOS 7)" \
+            --notes "compat-first build, rustc only" || \
+          gh release upload v1.63.0-rustc \
+            /opt/rust-1.63.0-rustc-only-centos7.tar.gz --clobber
