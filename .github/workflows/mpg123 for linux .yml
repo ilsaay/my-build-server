@@ -1,4 +1,4 @@
-name: Build mpg123 1.25.13 Linux x86 (ALSA only)
+name: Build mpg123 1.25.13 Linux x86_64
 
 on:
   workflow_dispatch:
@@ -17,60 +17,37 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          dpkg --add-architecture i386
           apt-get update
           apt-get install -y \
             build-essential \
-            gcc-multilib \
-            g++-multilib \
             make \
             wget \
             xz-utils \
             pkg-config \
-            libasound2:i386 \
-            libasound2-dev:i386 \
-            libc6-dev:i386
-
-      - name: Diagnose 32-bit ALSA
-        run: |
-          echo "=== foreign arch ==="
-          dpkg --print-foreign-architectures
-          echo "=== libasound files ==="
-          ls -la /usr/lib/i386-linux-gnu/libasound* || true
-          echo "=== pkg-config libs ==="
-          PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig pkg-config --libs alsa || true
-          echo "=== pkg-config cflags ==="
-          PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig pkg-config --cflags alsa || true
-          echo "=== manual link test ==="
-          cat > /tmp/test_alsa.c <<'EOF'
-          #include <alsa/asoundlib.h>
-          int main(){ snd_pcm_t *p; return snd_pcm_open(&p, "default", SND_PCM_STREAM_PLAYBACK, 0); }
-          EOF
-          i686-linux-gnu-gcc -m32 -o /tmp/test_alsa /tmp/test_alsa.c -L/usr/lib/i386-linux-gnu -lasound && echo "LINK OK" || echo "LINK FAILED"
+            libasound2-dev \
+            libc6-dev
 
       - name: Download mpg123 1.25.13 source
         run: |
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
 
-      - name: Configure (Linux x86, ALSA only)
+      - name: Configure (Linux x86_64, dynamic)
         run: |
           cd mpg123-1.25.13
-          export PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig
-          export PKG_CONFIG_LIBDIR=/usr/lib/i386-linux-gnu/pkgconfig
           ./configure \
-            --host=i686-linux-gnu \
+            --host=x86_64-linux-gnu \
             --build=x86_64-linux-gnu \
-            --disable-shared \
-            --enable-static \
+            --disable-static \
+            --enable-shared \
             --disable-network \
             --disable-ipv6 \
             --with-cpu=generic \
             --with-audio=alsa \
             --with-default-audio=alsa \
             --disable-lfs \
-            CFLAGS="-O2 -s -m32" \
-            LDFLAGS="-static -m32 -L/usr/lib/i386-linux-gnu"
+            CFLAGS="-O2 -s -fno-plt" \
+            LDFLAGS=""
 
       - name: Build
         run: |
@@ -81,13 +58,13 @@ jobs:
         run: |
           mkdir -p artifacts
           cp mpg123-1.25.13/src/mpg123 artifacts/ || true
-          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.a artifacts/ || true
-          cp mpg123-1.25.13/src/libout123/.libs/libout123.a artifacts/ || true
-          cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.a artifacts/ || true
+          cp mpg123-1.25.13/src/libmpg123/.libs/libmpg123.so* artifacts/ || true
+          cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/ || true
+          cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/ || true
           ls -la artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mpg123-1.25.13-linux-x86-alsa
+          name: mpg123-1.25.13-linux-x86_64
           path: artifacts/
