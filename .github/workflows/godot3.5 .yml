@@ -1,4 +1,4 @@
-name: Build Godot 3.5 Linux x86_64 (2D focused)
+name: Build Godot 3.5 Linux x86_64 Editor (dynamic, 2D focused)
 
 on:
   workflow_dispatch:
@@ -47,20 +47,19 @@ jobs:
           tar xzf 3.5-stable.tar.gz
           mv godot-3.5-stable godot
 
-      - name: Build (2D focused)
+      - name: Build (editor, dynamic)
         run: |
           cd godot
           scons -j$(nproc) \
             platform=x11 \
             target=release_debug \
-            tools=no \
+            tools=yes \
             use_llvm=no \
-            use_static_cpp=yes \
-            builtin_openssl=yes \
-            builtin_freetype=yes \
-            builtin_libpng=yes \
-            builtin_zlib=yes \
-            disable_3d=yes \
+            use_static_cpp=no \
+            builtin_openssl=no \
+            builtin_freetype=no \
+            builtin_libpng=no \
+            builtin_zlib=no \
             module_bullet_enabled=no \
             module_csg_enabled=no \
             module_gridmap_enabled=no \
@@ -104,5 +103,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: godot-3.5-linux-2d
+          name: godot-3.5-linux-editor-2d
           path: artifacts/
