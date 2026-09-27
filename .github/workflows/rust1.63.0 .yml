@@ -42,8 +42,12 @@ jobs:
 
       - name: Clone Rust source
         run: |
-          git clone --depth 1 --branch ${{ github.event.inputs.rust_version || '1.63.0' }} \
+          git clone --branch ${{ github.event.inputs.rust_version || '1.63.0' }} \
             https://github.com/rust-lang/rust.git rust
+          cd rust
+          git submodule update --init --recursive
+          git submodule foreach --recursive git reset --hard
+          git submodule foreach --recursive git clean -fdx
 
       - name: Install bootstrap Rust
         run: |
