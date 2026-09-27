@@ -18,55 +18,29 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y \
-            build-essential \
-            make \
-            wget \
-            xz-utils \
-            pkg-config \
-            libasound2-dev
+          apt-get install -y build-essential make wget xz-utils pkg-config libasound2-dev
 
-      - name: Download mpg123 1.25.13 source
+      - name: Download source
         run: |
           wget https://www.mpg123.de/download/mpg123-1.25.13.tar.bz2
           tar xjf mpg123-1.25.13.tar.bz2
 
-      - name: Configure (dynamic, ALSA only)
+      - name: Configure
         run: |
           cd mpg123-1.25.13
-          ./configure \
-            --host=x86_64-linux-gnu \
-            --build=x86_64-linux-gnu \
-            --disable-static \
-            --enable-shared \
-            --disable-network \
-            --disable-ipv6 \
-            --with-cpu=generic \
-            --with-audio=alsa \
-            --with-default-audio=alsa \
-            --disable-lfs \
-            CFLAGS="-O2 -s" \
-            LDFLAGS=""
+          ./configure --host=x86_64-linux-gnu --build=x86_64-linux-gnu --disable-static --enable-shared --disable-network --disable-ipv6 --with-cpu=generic --with-audio=alsa --with-default-audio=alsa --disable-lfs CFLAGS="-O2 -s" LDFLAGS=""
 
       - name: Build
         run: |
           cd mpg123-1.25.13
           make -j$(nproc)
 
-      - name: Check modules
+      - name: Check
         run: |
-          echo "=== output modules ==="
           ls -la mpg123-1.25.13/src/libout123/modules/.libs/ || true
-          echo "=== main binary ==="
           file mpg123-1.25.13/src/.libs/mpg123 || true
-          echo "=== libmpg123 ==="
-          ls -la mpg123-1.25.13/src/libmpg123/.libs/ || true
-          echo "=== libout123 ==="
-          ls -la mpg123-1.25.13/src/libout123/.libs/ || true
-          echo "=== libsyn123 ==="
-          ls -la mpg123-1.25.13/src/libsyn123/.libs/ || true
 
-      - name: Collect artifacts
+      - name: Collect
         run: |
           mkdir -p artifacts
           cp mpg123-1.25.13/src/.libs/mpg123 artifacts/mpg123 || true
@@ -74,18 +48,11 @@ jobs:
           cp mpg123-1.25.13/src/libout123/.libs/libout123.so* artifacts/ || true
           cp mpg123-1.25.13/src/libsyn123/.libs/libsyn123.so* artifacts/ || true
           cp mpg123-1.25.13/src/libout123/modules/.libs/libout123_*.so artifacts/ || true
-          cat > artifacts/run.sh <<'EOF'
-#!/bin/sh
-DIR=$(cd "$(dirname "$0")" && pwd)
-export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"
-export MPG123_MODDIR="$DIR"
-exec "$DIR/mpg123" "$@"
-EOF
+          printf '%s\n' '#!/bin/sh' 'DIR=$(cd "$(dirname "$0")" && pwd)' 'export LD_LIBRARY_PATH="$DIR:$LD_LIBRARY_PATH"' 'export MPG123_MODDIR="$DIR"' 'exec "$DIR/mpg123" "$@"' > artifacts/run.sh
           chmod +x artifacts/run.sh
-          echo "=== artifacts ==="
           ls -la artifacts/
 
-      - name: Upload artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: mpg123-1.25.13-linux-x86_64
