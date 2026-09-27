@@ -32,6 +32,7 @@ jobs:
             libglu1-mesa-dev \
             libasound2-dev \
             libpulse-dev \
+            libudev-dev \
             zlib1g-dev \
             libfreetype6-dev \
             libssl-dev \
@@ -45,7 +46,7 @@ jobs:
           tar xzf 3.5-stable.tar.gz
           mv godot-3.5-stable godot
 
-      - name: Build (2D focused, no 3D modules)
+      - name: Build (2D focused)
         run: |
           cd godot
           scons -j$(nproc) \
