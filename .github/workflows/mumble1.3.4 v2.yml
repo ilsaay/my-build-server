@@ -14,9 +14,9 @@ jobs:
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          # 仅保留 GUI 渲染、音频处理及 Qt5 基础核心依赖
+          # 显式安装 sqlite3 运行库及 Qt 对应绑定
           apt-get install -y \
-            git build-essential qt5-qmake qtbase5-dev qttools5-dev qttools5-dev-tools libqt5svg5-dev \
+            git build-essential qt5-qmake qtbase5-dev qttools5-dev qttools5-dev-tools libqt5svg5-dev libqt5sql5-sqlite libsqlite3-0 \
             libboost-dev libssl-dev libprotobuf-dev protobuf-compiler \
             libcap-dev libasound2-dev libpulse-dev libogg-dev libsndfile1-dev libopus-dev \
             libspeex-dev libspeexdsp-dev libx11-dev libxi-dev \
@@ -29,15 +29,15 @@ jobs:
       - name: Configure and Build (Purified QMake)
         run: |
           cd mumble-src
-          # 彻底剔除所有非核心与无用功能
           qmake -r main.pro CONFIG+="release no-server no-ice no-overlay no-g15 no-speechd no-bonjour no-crash-report"
           make -j$(nproc)
 
       - name: Prepare portable package
         run: |
-          mkdir -p package/lib package/platforms package/imageformats
+          # 1. 创建标准的 Qt 插件层级结构
+          mkdir -p package/lib package/plugins/platforms package/plugins/imageformats package/plugins/sqldrivers
           
-          # 1. 寻找客户端可执行文件
+          # 2. 复制客户端主程序
           MUMBLE_BIN=$(find mumble-src -type f -name "mumble" -executable | head -n 1)
           if [ -z "$MUMBLE_BIN" ]; then
             echo "Error: Mumble client binary not found!"
@@ -45,38 +45,46 @@ jobs:
           fi
           cp "$MUMBLE_BIN" package/mumble
 
-          # 2. 复制第三方动态依赖库（排除 libc/libm 及底层显卡驱动）
-          ldd package/mumble | grep "=> /" | awk '{print $3}' | \
-            grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
-            xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
-
-          # 3. 复制 Qt XCB 平台插件与 SVG 图像插件
+          # 3. 复制 Qt 核心功能插件
           QT_PLUGIN_DIR=$(qmake -query QT_INSTALL_PLUGINS)
-          cp -L "$QT_PLUGIN_DIR"/platforms/libqxcb.so package/platforms/ 2>/dev/null || true
-          cp -L "$QT_PLUGIN_DIR"/imageformats/libqsvg.so package/imageformats/ 2>/dev/null || true
-          
-          # 提取平台插件依赖库
-          if [ -f "package/platforms/libqxcb.so" ]; then
-            ldd package/platforms/libqxcb.so | grep "=> /" | awk '{print $3}' | \
+          cp -L "$QT_PLUGIN_DIR"/platforms/libqxcb.so package/plugins/platforms/ 2>/dev/null || true
+          cp -L "$QT_PLUGIN_DIR"/imageformats/libqsvg.so package/plugins/imageformats/ 2>/dev/null || true
+          cp -L "$QT_PLUGIN_DIR"/sqldrivers/libqsqlite.so package/plugins/sqldrivers/ 2>/dev/null || true
+
+          # 4. 【关键】显式强制复制系统 SQLite 运行库到 package/lib
+          cp -L /usr/lib/x86_64-linux-gnu/libsqlite3.so* package/lib/ 2>/dev/null || true
+
+          # 5. 递归扫描主程序及所有 Qt 插件的依赖，统一收集到 package/lib/
+          ALL_TARGETS="package/mumble $(find package/plugins -type f -name "*.so*")"
+          for target in $ALL_TARGETS; do
+            ldd "$target" | grep "=> /" | awk '{print $3}' | \
               grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
               xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
-          fi
+          done
 
-          # 4. 生成 qt.conf（指定相对于可执行文件的插件目录）
-          cat << 'EOF' > package/qt.conf
-          [Paths]
-          Plugins = .
-          EOF
-
-          # 5. 修改 RPATH 注入相对库路径
+          # 6. 修正主程序的 RPATH
           patchelf --set-rpath '$ORIGIN/lib' package/mumble
 
-          # 6. 生成一键启动脚本
+          # 7. 修正 lib/ 目录下依赖库的 RPATH
+          find package/lib -type f -name "*.so*" -exec patchelf --set-rpath '$ORIGIN' {} \; 2>/dev/null || true
+
+          # 8. 修正 plugins/ 目录下所有插件的 RPATH，使其跨目录指向 ../../lib
+          find package/plugins -type f -name "*.so*" -exec patchelf --set-rpath '$ORIGIN/../../lib:$ORIGIN/../lib' {} \; 2>/dev/null || true
+
+          # 9. 生成标准的 qt.conf 配置文件
+          cat << 'EOF' > package/qt.conf
+          [Paths]
+          Prefix = .
+          Plugins = plugins
+          Libraries = lib
+          EOF
+
+          # 10. 生成开箱即用的启动脚本
           cat << 'EOF' > package/start.sh
           #!/usr/bin/env bash
           DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
-          export QT_PLUGIN_PATH="$DIR"
+          export QT_PLUGIN_PATH="$DIR/plugins"
           exec "$DIR/mumble" "$@"
           EOF
           chmod +x package/start.sh
