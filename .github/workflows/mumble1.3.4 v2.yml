@@ -1,4 +1,4 @@
-name: Build Mumble 1.3.x V2 Server (Portable)
+name: Build Mumble 1.3.4 V2 Server (Portable)
 
 on:
   workflow_dispatch:
@@ -8,13 +8,11 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Clone Mumble source
+      - name: Clone Mumble 1.3.4
         run: |
-          git clone -b v1.3.4 --depth 1 https://github.com/mumble-voip/mumble.git mumble-src
-          echo "--- repo content ---"
-          ls -la mumble-src
-          echo "--- CMakeLists location ---"
-          find mumble-src -maxdepth 3 -name CMakeLists.txt
+          git clone -b 1.3.4 --depth 1 https://github.com/mumble-voip/mumble.git mumble-src
+          echo "--- verify source ---"
+          ls mumble-src/CMakeLists.txt
 
       - name: Install dependencies
         run: |
@@ -56,6 +54,7 @@ jobs:
             cp mumble-src/scripts/murmur.ini package/
           fi
 
+          # 复制动态链接库，排除系统基础库
           ldd package/murmur | grep "=> /" | awk '{print $3}' | \
             grep -v -E '^/(lib/x86_64-linux-gnu/(libc|libm|libpthread|libdl|librt|libgcc_s|libstdc\+\+))' | \
             xargs -I {} cp {} package/lib/ 2>/dev/null || true
@@ -63,11 +62,11 @@ jobs:
       - name: Create ZIP archive
         run: |
           cd package
-          zip -r ../mumble-1.3.x-server-portable.zip .
+          zip -r ../mumble-1.3.4-server-portable.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mumble-1.3.x-server-portable
-          path: mumble-1.3.x-server-portable.zip
+          name: mumble-1.3.4-server-portable
+          path: mumble-1.3.4-server-portable.zip
           retention-days: 30
