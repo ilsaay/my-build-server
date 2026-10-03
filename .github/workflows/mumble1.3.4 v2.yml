@@ -6,7 +6,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 依旧使用 20.04 作为底层，避免高版本 GLIBC 导致在旧系统上无法运行
     container:
       image: ubuntu:20.04
 
@@ -15,7 +14,6 @@ jobs:
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          # 安装客户端必需的 GUI、音频和 Qt 依赖
           apt-get install -y \
             git build-essential qt5-qmake qtbase5-dev qttools5-dev qttools5-dev-tools libqt5svg5-dev \
             libboost-dev libssl-dev libprotobuf-dev protobuf-compiler \
@@ -24,9 +22,10 @@ jobs:
             libspeex-dev libspeexdsp-dev libx11-dev libxi-dev \
             patchelf zip gawk file
 
-      - name: Clone Mumble 1.3.4
+      - name: Clone Mumble 1.3.4 and Submodules
         run: |
-          git clone -b 1.3.4 --depth 1 https://github.com/mumble-voip/mumble.git mumble-src
+          # 增加 --recurse-submodules 参数以拉取 Mumble 依赖的第三方库 (如 celt)
+          git clone -b 1.3.4 --depth 1 --recurse-submodules https://github.com/mumble-voip/mumble.git mumble-src
 
       - name: Configure and Build (QMake)
         run: |
@@ -37,10 +36,9 @@ jobs:
 
       - name: Prepare portable package
         run: |
-          # 创建依赖库和 Qt 插件对应的目录
           mkdir -p package/lib package/platforms package/imageformats
           
-          # 1. 寻找编译出的客户端二进制文件 (加入 -type f 避免匹配到同名目录报错)
+          # 1. 寻找编译出的客户端二进制文件
           MUMBLE_BIN=$(find mumble-src -type f -name "mumble" -executable | head -n 1)
           if [ -z "$MUMBLE_BIN" ]; then
             echo "Error: Mumble client binary not found!"
@@ -48,32 +46,33 @@ jobs:
           fi
           cp "$MUMBLE_BIN" package/mumble
 
-          # 2. 复制第三方动态依赖库
-          # 注意：排除系统底层的 X11/GLX/DRM/libc 等硬件与驱动强相关的基础库，让程序直接调用目标主机的驱动组件，防止图形崩溃
+          # 2. 复制第三方动态依赖库（排除系统底层和显卡驱动相关库）
           ldd package/mumble | grep "=> /" | awk '{print $3}' | \
             grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
             xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
 
-          # 3. 复制 Qt 基础运行所需的核心插件 (XCB 平台插件和 SVG 图像插件)
+          # 3. 复制 Qt 基础运行所需的核心插件 (XCB 和 SVG)
           QT_PLUGIN_DIR=$(qmake -query QT_INSTALL_PLUGINS)
           cp -L "$QT_PLUGIN_DIR"/platforms/libqxcb.so package/platforms/ 2>/dev/null || true
           cp -L "$QT_PLUGIN_DIR"/imageformats/libqsvg.so package/imageformats/ 2>/dev/null || true
           
           # 将 Qt 插件引发的其他专属依赖库也提取出来
-          ldd package/platforms/libqxcb.so | grep "=> /" | awk '{print $3}' | \
-            grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
-            xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
+          if [ -f "package/platforms/libqxcb.so" ]; then
+            ldd package/platforms/libqxcb.so | grep "=> /" | awk '{print $3}' | \
+              grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
+              xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
+          fi
 
-          # 4. 生成 qt.conf，强制 Mumble 从当前目录查找并加载 Qt 插件
+          # 4. 生成 qt.conf，强制 Mumble 从当前目录加载插件
           cat << 'EOF' > package/qt.conf
           [Paths]
           Plugins = .
           EOF
 
-          # 5. 修改 Mumble 主程序的 RPATH
+          # 5. 修改 RPATH 使得文件相对依赖加载生效
           patchelf --set-rpath '$ORIGIN/lib' package/mumble
 
-          # 6. 创建开箱即用的一键启动脚本
+          # 6. 编写启动脚本
           cat << 'EOF' > package/start.sh
           #!/usr/bin/env bash
           DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
