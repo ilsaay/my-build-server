@@ -1,21 +1,16 @@
-name: Build Mumble 1.3.x V2 Server (Portable)
+name: Build Mumble 1.3.4 V2 Server (Portable)
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v1.3.*'
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: 1.3.4
+      - name: Checkout Mumble 1.3.4
+        run: |
+          git clone -b 1.3.4 --depth 1 https://github.com/mumble-voip/mumble.git mumble-src
 
       - name: Install dependencies
         run: |
@@ -28,10 +23,11 @@ jobs:
             libcap-dev libxi-dev libasound2-dev \
             libogg-dev libsndfile1-dev libopus-dev \
             libspeechd-dev libavahi-compat-libdnssd-dev \
-            libxcb-xinerama0 libzeroc-ice-dev libpoco-dev
+            libxcb-xinerama0 libpoco-dev
 
       - name: Configure CMake
         run: |
+          cd mumble-src
           mkdir build && cd build
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
@@ -43,18 +39,23 @@ jobs:
 
       - name: Build
         run: |
-          cd build
+          cd mumble-src/build
           cmake --build . -j$(nproc)
 
       - name: Prepare portable package
         run: |
-          mkdir -p package
-          cp build/murmur/murmur package/ 2>/dev/null || cp build/murmur package/murmur
-          cp build/murmur/murmur.ini package/ 2>/dev/null || true
-
-          # 复制动态链接库
           mkdir -p package/lib
-          ldd package/murmur | grep "=> /" | awk '{print $3}' | xargs -I {} cp {} package/lib/ 2>/dev/null || true
+          cp mumble-src/build/murmur/murmur package/ 2>/dev/null || cp mumble-src/build/murmur package/murmur
+          if [ -f mumble-src/build/murmur/murmur.ini ]; then
+            cp mumble-src/build/murmur/murmur.ini package/
+          elif [ -f mumble-src/scripts/murmur.ini ]; then
+            cp mumble-src/scripts/murmur.ini package/
+          fi
+
+          # 复制动态链接库，排除系统基础库
+          ldd package/murmur | grep "=> /" | awk '{print $3}' | \
+            grep -v -E '^/(lib/x86_64-linux-gnu/(libc|libm|libpthread|libdl|librt|libgcc_s|libstdc\+\+))' | \
+            xargs -I {} cp {} package/lib/ 2>/dev/null || true
 
       - name: Create ZIP archive
         run: |
