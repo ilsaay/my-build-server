@@ -1,4 +1,4 @@
-name: Build Mumble 1.3.4 V2 Client (Portable)
+name: Build Mumble 1.3.4 V2 Client (Portable Pure)
 
 on:
   workflow_dispatch:
@@ -10,35 +10,34 @@ jobs:
       image: ubuntu:20.04
 
     steps:
-      - name: Install dependencies
+      - name: Install minimal build dependencies
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
+          # 仅保留 GUI 渲染、音频处理及 Qt5 基础核心依赖
           apt-get install -y \
             git build-essential qt5-qmake qtbase5-dev qttools5-dev qttools5-dev-tools libqt5svg5-dev \
             libboost-dev libssl-dev libprotobuf-dev protobuf-compiler \
             libcap-dev libasound2-dev libpulse-dev libogg-dev libsndfile1-dev libopus-dev \
-            libspeechd-dev libavahi-compat-libdnssd-dev \
             libspeex-dev libspeexdsp-dev libx11-dev libxi-dev \
             patchelf zip gawk file
 
       - name: Clone Mumble 1.3.4 and Submodules
         run: |
-          # 增加 --recurse-submodules 参数以拉取 Mumble 依赖的第三方库 (如 celt)
           git clone -b 1.3.4 --depth 1 --recurse-submodules https://github.com/mumble-voip/mumble.git mumble-src
 
-      - name: Configure and Build (QMake)
+      - name: Configure and Build (Purified QMake)
         run: |
           cd mumble-src
-          # 禁用服务端 (no-server) 和 Ice，仅构建客户端
-          qmake -r main.pro CONFIG+="release no-server no-ice"
+          # 彻底剔除所有非核心与无用功能
+          qmake -r main.pro CONFIG+="release no-server no-ice no-overlay no-g15 no-speechd no-bonjour no-crash-report"
           make -j$(nproc)
 
       - name: Prepare portable package
         run: |
           mkdir -p package/lib package/platforms package/imageformats
           
-          # 1. 寻找编译出的客户端二进制文件
+          # 1. 寻找客户端可执行文件
           MUMBLE_BIN=$(find mumble-src -type f -name "mumble" -executable | head -n 1)
           if [ -z "$MUMBLE_BIN" ]; then
             echo "Error: Mumble client binary not found!"
@@ -46,33 +45,33 @@ jobs:
           fi
           cp "$MUMBLE_BIN" package/mumble
 
-          # 2. 复制第三方动态依赖库（排除系统底层和显卡驱动相关库）
+          # 2. 复制第三方动态依赖库（排除 libc/libm 及底层显卡驱动）
           ldd package/mumble | grep "=> /" | awk '{print $3}' | \
             grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
             xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
 
-          # 3. 复制 Qt 基础运行所需的核心插件 (XCB 和 SVG)
+          # 3. 复制 Qt XCB 平台插件与 SVG 图像插件
           QT_PLUGIN_DIR=$(qmake -query QT_INSTALL_PLUGINS)
           cp -L "$QT_PLUGIN_DIR"/platforms/libqxcb.so package/platforms/ 2>/dev/null || true
           cp -L "$QT_PLUGIN_DIR"/imageformats/libqsvg.so package/imageformats/ 2>/dev/null || true
           
-          # 将 Qt 插件引发的其他专属依赖库也提取出来
+          # 提取平台插件依赖库
           if [ -f "package/platforms/libqxcb.so" ]; then
             ldd package/platforms/libqxcb.so | grep "=> /" | awk '{print $3}' | \
               grep -v -E '^/(lib|usr/lib)/.*/(libc\.so|libm\.so|libpthread|libdl|librt|libgcc_s|libstdc\+\+|ld-linux|libX|libxcb|libGL|libEGL|libdrm)' | \
               xargs -I {} cp -L {} package/lib/ 2>/dev/null || true
           fi
 
-          # 4. 生成 qt.conf，强制 Mumble 从当前目录加载插件
+          # 4. 生成 qt.conf（指定相对于可执行文件的插件目录）
           cat << 'EOF' > package/qt.conf
           [Paths]
           Plugins = .
           EOF
 
-          # 5. 修改 RPATH 使得文件相对依赖加载生效
+          # 5. 修改 RPATH 注入相对库路径
           patchelf --set-rpath '$ORIGIN/lib' package/mumble
 
-          # 6. 编写启动脚本
+          # 6. 生成一键启动脚本
           cat << 'EOF' > package/start.sh
           #!/usr/bin/env bash
           DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,11 +84,11 @@ jobs:
       - name: Create ZIP archive
         run: |
           cd package
-          zip -r ../mumble-1.3.4-client-portable.zip .
+          zip -r ../mumble-1.3.4-client-pure-portable.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mumble-1.3.4-client-portable
-          path: mumble-1.3.4-client-portable.zip
+          name: mumble-1.3.4-client-pure-portable
+          path: mumble-1.3.4-client-pure-portable.zip
           retention-days: 30
