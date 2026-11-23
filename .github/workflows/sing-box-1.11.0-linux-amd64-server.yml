@@ -1,1 +1,95 @@
+name: Build sing-box 1.11.0 Server (Linux amd64, TCP)
 
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTELEMETRY: "off"
+  GOTOOLCHAIN: local
+  CGO_ENABLED: "0"
+  GOOS: linux
+  GOARCH: amd64
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sing-box v1.11.0
+        uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: v1.11.0
+
+      - name: Setup Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Disable Go telemetry
+        run: go telemetry off
+
+      - name: Build (server tags, TCP protocols)
+        run: |
+          go build -trimpath \
+            -tags "with_reality_server,with_utls,with_ech,with_grpc" \
+            -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=1.11.0" \
+            -o sing-box ./cmd/sing-box
+
+      - name: Verify version and build info
+        run: |
+          ./sing-box version
+          go version -m ./sing-box
+
+      - name: Verify a VLESS + REALITY server config loads
+        run: |
+          UUID=$(./sing-box generate uuid)
+          KEYS=$(./sing-box generate reality-keypair)
+          PRIVATE_KEY=$(echo "$KEYS" | grep PrivateKey | awk '{print $NF}')
+          cat > server-test.json <<EOF
+          {
+            "log": { "level": "info" },
+            "inbounds": [
+              {
+                "type": "vless",
+                "tag": "vless-in",
+                "listen": "127.0.0.1",
+                "listen_port": 8443,
+                "users": [
+                  { "uuid": "$UUID", "flow": "xtls-rprx-vision" }
+                ],
+                "tls": {
+                  "enabled": true,
+                  "server_name": "www.microsoft.com",
+                  "reality": {
+                    "enabled": true,
+                    "handshake": { "server": "www.microsoft.com", "server_port": 443 },
+                    "private_key": "$PRIVATE_KEY",
+                    "short_id": ["abcd"]
+                  }
+                }
+              }
+            ],
+            "outbounds": [
+              { "type": "direct", "tag": "direct" }
+            ]
+          }
+          EOF
+          ./sing-box check -c server-test.json
+          echo "server config check OK"
+
+      - name: SHA256
+        run: |
+          sha256sum sing-box | tee sing-box.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-1.11.0-linux-amd64-server
+          path: |
+            sing-box
+            sing-box.sha256
+          if-no-files-found: error
