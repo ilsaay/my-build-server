@@ -1,0 +1,73 @@
+name: build-sing-box-1.11.0-windows-amd64-notelemetry
+
+on:
+  workflow_dispatch:
+
+env:
+  GOTELEMETRY: "off"
+  GOTOOLCHAIN: local
+  CGO_ENABLED: "0"
+  GOOS: windows
+  GOARCH: amd64
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout sing-box v1.11.0
+        uses: actions/checkout@v4
+        with:
+          repository: SagerNet/sing-box
+          ref: v1.11.0
+          path: sing-box
+
+      - name: Setup Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+          cache: false
+
+      - name: Turn Go telemetry off
+        run: go telemetry off
+
+      - name: Build (only with_quic, no clash/v2ray api)
+        working-directory: sing-box
+        run: >
+          go build -trimpath
+          -tags "with_quic"
+          -ldflags "-s -w -buildid= -X github.com/sagernet/sing-box/constant.Version=1.11.0"
+          -o ../dist/sing-box.exe ./cmd/sing-box
+
+      - name: Verify version and build info
+        run: |
+          .\dist\sing-box.exe version
+          go version -m .\dist\sing-box.exe
+
+      - name: Verify hy2 config passes check
+        run: |
+          @'
+          {
+            "inbounds": [
+              { "type": "socks", "listen": "127.0.0.1", "listen_port": 10809 }
+            ],
+            "outbounds": [
+              {
+                "type": "hysteria2",
+                "server": "127.0.0.1",
+                "server_port": 443,
+                "password": "test",
+                "tls": { "enabled": true, "server_name": "example.com" }
+              }
+            ]
+          }
+          '@ | Set-Content -Encoding ascii test.json
+          .\dist\sing-box.exe check -c test.json
+
+      - name: SHA256
+        run: (Get-FileHash .\dist\sing-box.exe -Algorithm SHA256).Hash | Set-Content .\dist\sha256.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-1.11.0-windows-amd64-notelemetry
+          path: dist/*
