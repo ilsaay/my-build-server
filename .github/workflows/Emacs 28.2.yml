@@ -99,6 +99,26 @@ jobs:
           sed -i 's/#define lseek[[:space:]]*_lseek/#define lseek     _lseek64/' nt/inc/ms-w32.h
           grep -n "define lseek" nt/inc/ms-w32.h
 
+      - name: Patch emacsclient.c for MinGW GCC 15 (get_wc/set_fg)
+        working-directory: emacs-${{ env.EMACS_VERSION }}
+        run: |
+          set -e
+          # 第二个新工具链不兼容: GCC 15 对函数指针变严格了,
+          # 28.2 里 set_fg/get_wc 声明成 FARPROC (无参函数指针),
+          # 却带 3 个 / 1 个参数调用, GCC 15 直接报错:
+          #   error: too many arguments to function 'get_wc'; expected 0, have 3
+          #   error: too many arguments to function 'set_fg'; expected 0, have 1
+          # 上游在 2025-04-30 修了这个问题 (Bug#78160, emacs-30/master):
+          # 把这两个变量按真实签名声明, GetProcAddress 返回值做相应强转。
+          # 28.2 没有这个修复, 在这里手工打同样的补丁。
+          grep -n "FARPROC set_fg\|FARPROC get_wc" lib-src/emacsclient.c
+          sed -i -e 's/FARPROC set_fg;/BOOL (WINAPI *set_fg) (DWORD);/' \
+                 -e 's/FARPROC get_wc;/UINT (WINAPI *get_wc) (HWND, LPSTR, UINT);/' \
+                 -e 's/set_fg = GetProcAddress/set_fg = (BOOL (WINAPI *) (DWORD)) GetProcAddress/' \
+                 -e 's/get_wc = GetProcAddress/get_wc = (UINT (WINAPI *) (HWND, LPSTR, UINT)) GetProcAddress/' \
+                 lib-src/emacsclient.c
+          grep -n "set_fg\|get_wc" lib-src/emacsclient.c | head -20
+
       - name: Configure (Windows GUI, 无遥测, 稳定优先)
         working-directory: emacs-${{ env.EMACS_VERSION }}
         run: |
