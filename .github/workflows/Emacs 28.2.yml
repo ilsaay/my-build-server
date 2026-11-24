@@ -85,6 +85,20 @@ jobs:
           tar -xf emacs-${EMACS_VERSION}.tar.xz
           ls emacs-${EMACS_VERSION}/nt/INSTALL.W64
 
+      - name: Patch ms-w32.h for new mingw-w64 (_lseek conflict)
+        working-directory: emacs-${{ env.EMACS_VERSION }}
+        run: |
+          set -e
+          # 2025-11 mingw-w64 改了头文件, 不再把 lseek 宏定义成 64 位版,
+          # 导致 28.2 的 nt/inc/ms-w32.h 里 "#define lseek _lseek" 和
+          # 新版 io.h 里 _lseek(long,long,int) 冲突:
+          #   error: conflicting types for '_lseek'; have 'off_t(int,off_t,int)'
+          # 上游 emacs-devel 的 workaround 就是把 lseek 改成 _lseek64,
+          # 改完能正常 bootstrap。只改这一行, 不改别的。
+          grep -n "define lseek" nt/inc/ms-w32.h || true
+          sed -i 's/#define lseek[[:space:]]*_lseek/#define lseek     _lseek64/' nt/inc/ms-w32.h
+          grep -n "define lseek" nt/inc/ms-w32.h
+
       - name: Configure (Windows GUI, 无遥测, 稳定优先)
         working-directory: emacs-${{ env.EMACS_VERSION }}
         run: |
