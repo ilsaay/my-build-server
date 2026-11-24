@@ -72,6 +72,8 @@ jobs:
             mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-gnutls
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-pkgconf
+            pkgconf
             texinfo
 
       - name: Download Emacs 28.2 release tarball
@@ -87,6 +89,11 @@ jobs:
         working-directory: emacs-${{ env.EMACS_VERSION }}
         run: |
           set -e
+          # 关键修复: 必须有 pkg-config, 否则 configure 找不到 gnutls/libxml2 等
+          # 已装好的库明明在, 却报 "Unable to locate a usable pkg-config"
+          which pkg-config || which pkgconf
+          pkg-config --modversion gnutls
+          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig
           ./configure \
             --prefix=/c/emacs-${EMACS_VERSION} \
             --with-gnutls \
