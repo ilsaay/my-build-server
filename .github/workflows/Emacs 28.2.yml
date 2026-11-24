@@ -1,36 +1,46 @@
-# Build GNU Emacs 28.2 — Windows x64 GUI, 无遥测, 稳定优先
+# Build GNU Emacs 31.1 — Windows x64 GUI, 无遥测, 稳定优先
 #
-# 版本选择: Emacs 28.2 (2022-09, 28 系列最后一个正式版)
-#   - 经过 3 年以上长期验证, Windows GUI 构建路径最成熟
-#   - 没有 29+ 的 tree-sitter、31 的新特性带来的不稳定因素
-#   - 自带 native-comp 框架, 但本 workflow 明确关掉, 见下
+# 为什么换成 31.1, 不再修 28.2:
+#   28.2 (2022-09) 跟现在 MSYS2 / GCC 15 / 新 mingw-w64 头文件已经
+#   系统性不兼容, 打补丁是打地鼠:
+#     1. pkg-config 缺失 -> configure 找不到 gnutls (已修, 是真缺包)
+#     2. _lseek 类型冲突 (2025-11 mingw-w64 改头文件, 上游 workaround)
+#     3. emacsclient.c: FARPROC 带参调用, GCC 15 直接报错 (Bug#78160, 上游修在 30/master)
+#     4. src/sysdep.c: waitpid / WNOHANG 未声明 — GCC 15 起隐式函数声明是硬错误,
+#        28.2 的 syswait.h / config.h 链在新头文件下断了
+#   第 4 个修完还会有第 5 个 (老式 K&R 写法、C23 严格性), 没法一次性修完。
+#   31.1 (2026-08-24, 最新正式版) 是在 GCC 15 / 新 mingw-w64 环境下开发、
+#   发布的, 上面这些修复都在上游里, 不用打任何源码补丁。
+#   31.1_1 官方 Windows 包 (2026-09-17) 同时有 MSVCRT 版和 UCRT64 版,
+#   证明 UCRT64 构建是官方走通的路子, 本 workflow 就用 UCRT64。
 #
-# 去遥测说明 (先说清楚, 免得误会):
+# 版本选择: Emacs 31.1 (2026-08-24)
+#   - 官方 ftp.gnu.org release tarball, 不用 git master / 快照版
+#   - 已在新工具链下验证过的版本, 不是“追新”, 是“能一次编过”的版本
+#
+# 去遥测说明:
 #   Emacs 上游本身就没有遥测、没有使用统计、没有崩溃上报、没有联网打点,
 #   package.el 只在用户主动装包时才联网。本 workflow 额外做到:
-#     - 不开 native-compilation (不用 libgccjit, 避免 JIT 编译不稳定/启动慢)
-#     - --without-dbus --without-imagemagick (Windows 上不支持/不稳定, 且会拉外部依赖)
+#     - 不开 native-compilation (不用 libgccjit, 避免 JIT 不稳定/启动慢)
+#     - --without-dbus --without-imagemagick --without-tree-sitter
 #     - 不装、不启用任何第三方遥测/统计包, 不加任何 post-install 脚本
-#     - 只用官方 ftp.gnu.org 的 release tarball, 不用 git master / 快照版
 #
 # 稳定优先的取舍:
 #   - CFLAGS 只用 -O2 + -march=x86-64 通用指令集, 不用 -O3, 不用 -march=native
-#     (GitHub Runner 的 CPU 和你的 CPU 不一样, -march=native 编出来的二进制
-#      在你机器上可能跑不了 / 不稳定)
-#   - Runner 用 windows-2022 (比 windows-latest 更稳, 28.2 时代的工具链)
-#   - MSYS2 用 MINGW64 (MSVCRT), 不是 UCRT64 (UCRT 是 29+ / Emacs 31 的路子,
-#     28.2 用 MINGW64 最稳)
+#   - Runner 用 windows-2022
+#   - MSYS2 用 UCRT64 (31.1 的官方推荐路子, 见上面)
 #   - make 只用 -j4, 不用满核, 避免 CI 上 OOM / 编译随机失败
-#   - 只保留 GUI 必需 + 常用库: GnuTLS(联网装包用)、libxml2、图片库(xpm/png/jpeg/gif/tiff/rsvg)
+#   - 只保留 GUI 必需 + 常用库: GnuTLS、libxml2、jansson(JSON)、gmp、图片库
 #
 # 使用方法:
-#   1. 把本文件放进你的 GitHub 仓库: .github/workflows/build-emacs-28.2-windows-gui.yml
-#   2. GitHub 网页: Actions -> Build GNU Emacs 28.2 Windows GUI -> Run workflow
-#   3. 跑完在 Artifacts 里下载 emacs-28.2-windows-x64-gui.zip
-#   4. 解压到任意目录 (如 D:\emacs-28.2), 双击 bin\runemacs.exe 即图形界面
+#   1. 把本文件放进你的 GitHub 仓库: .github/workflows/build-emacs-31.1-windows-gui.yml
+#      (注意: 旧的 build-emacs-28.2-windows-gui.yml 不用再跑了, 可以删掉)
+#   2. GitHub 网页: Actions -> Build GNU Emacs 31.1 Windows GUI -> Run workflow
+#   3. 跑完在 Artifacts 里下载 emacs-31.1-windows-x64-gui.zip
+#   4. 解压到任意目录 (如 D:\emacs-31.1), 双击 bin\runemacs.exe 即图形界面
 #      不需要装 MSYS2, 所需 DLL 已随包一起打进去
 #
-name: Build GNU Emacs 28.2 Windows GUI
+name: Build GNU Emacs 31.1 Windows GUI
 
 on:
   workflow_dispatch:
@@ -46,37 +56,39 @@ jobs:
         shell: msys2 {0}
 
     env:
-      EMACS_VERSION: "28.2"
+      EMACS_VERSION: "31.1"
       # 稳定优先: -O2, 通用 x86-64, 不开 -O3 / -march=native / LTO
       CFLAGS: "-O2 -march=x86-64 -mtune=generic -pipe"
       CXXFLAGS: "-O2 -march=x86-64 -mtune=generic -pipe"
       LDFLAGS: "-Wl,--no-undefined"
 
     steps:
-      - name: Set up MSYS2 (MINGW64)
+      - name: Set up MSYS2 (UCRT64)
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
-          # 只装必需的: 编译工具链 + GUI/图片/TLS 库
+          # 只装必需的: 编译工具链 + GUI/图片/TLS/JSON 库
           # 不装: libgccjit (native-comp)、imagemagick、dbus、tree-sitter
           install: >-
             base-devel
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-xpm-nox
-            mingw-w64-x86_64-libtiff
-            mingw-w64-x86_64-giflib
-            mingw-w64-x86_64-libpng
-            mingw-w64-x86_64-libjpeg-turbo
-            mingw-w64-x86_64-librsvg
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-gnutls
-            mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-xpm-nox
+            mingw-w64-ucrt-x86_64-libtiff
+            mingw-w64-ucrt-x86_64-giflib
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-gnutls
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-jansson
+            mingw-w64-ucrt-x86_64-gmp
+            mingw-w64-ucrt-x86_64-pkgconf
             pkgconf
             texinfo
 
-      - name: Download Emacs 28.2 release tarball
+      - name: Download Emacs 31.1 release tarball
         run: |
           set -e
           curl -fL -o emacs-${EMACS_VERSION}.tar.xz \
@@ -85,49 +97,17 @@ jobs:
           tar -xf emacs-${EMACS_VERSION}.tar.xz
           ls emacs-${EMACS_VERSION}/nt/INSTALL.W64
 
-      - name: Patch ms-w32.h for new mingw-w64 (_lseek conflict)
-        working-directory: emacs-${{ env.EMACS_VERSION }}
-        run: |
-          set -e
-          # 2025-11 mingw-w64 改了头文件, 不再把 lseek 宏定义成 64 位版,
-          # 导致 28.2 的 nt/inc/ms-w32.h 里 "#define lseek _lseek" 和
-          # 新版 io.h 里 _lseek(long,long,int) 冲突:
-          #   error: conflicting types for '_lseek'; have 'off_t(int,off_t,int)'
-          # 上游 emacs-devel 的 workaround 就是把 lseek 改成 _lseek64,
-          # 改完能正常 bootstrap。只改这一行, 不改别的。
-          grep -n "define lseek" nt/inc/ms-w32.h || true
-          sed -i 's/#define lseek[[:space:]]*_lseek/#define lseek     _lseek64/' nt/inc/ms-w32.h
-          grep -n "define lseek" nt/inc/ms-w32.h
-
-      - name: Patch emacsclient.c for MinGW GCC 15 (get_wc/set_fg)
-        working-directory: emacs-${{ env.EMACS_VERSION }}
-        run: |
-          set -e
-          # 第二个新工具链不兼容: GCC 15 对函数指针变严格了,
-          # 28.2 里 set_fg/get_wc 声明成 FARPROC (无参函数指针),
-          # 却带 3 个 / 1 个参数调用, GCC 15 直接报错:
-          #   error: too many arguments to function 'get_wc'; expected 0, have 3
-          #   error: too many arguments to function 'set_fg'; expected 0, have 1
-          # 上游在 2025-04-30 修了这个问题 (Bug#78160, emacs-30/master):
-          # 把这两个变量按真实签名声明, GetProcAddress 返回值做相应强转。
-          # 28.2 没有这个修复, 在这里手工打同样的补丁。
-          grep -n "FARPROC set_fg\|FARPROC get_wc" lib-src/emacsclient.c
-          sed -i -e 's/FARPROC set_fg;/BOOL (WINAPI *set_fg) (DWORD);/' \
-                 -e 's/FARPROC get_wc;/UINT (WINAPI *get_wc) (HWND, LPSTR, UINT);/' \
-                 -e 's/set_fg = GetProcAddress/set_fg = (BOOL (WINAPI *) (DWORD)) GetProcAddress/' \
-                 -e 's/get_wc = GetProcAddress/get_wc = (UINT (WINAPI *) (HWND, LPSTR, UINT)) GetProcAddress/' \
-                 lib-src/emacsclient.c
-          grep -n "set_fg\|get_wc" lib-src/emacsclient.c | head -20
+      # 注意: 31.1 不用打任何源码补丁 (_lseek / emacsclient / waitpid 的修复
+      # 都在上游里)。下面只有 pkg-config 的检查, 那是真缺包问题, 不是补丁。
 
       - name: Configure (Windows GUI, 无遥测, 稳定优先)
         working-directory: emacs-${{ env.EMACS_VERSION }}
         run: |
           set -e
-          # 关键修复: 必须有 pkg-config, 否则 configure 找不到 gnutls/libxml2 等
-          # 已装好的库明明在, 却报 "Unable to locate a usable pkg-config"
+          # 必须有 pkg-config, 否则 configure 找不到 gnutls/libxml2 等已装的库
           which pkg-config || which pkgconf
           pkg-config --modversion gnutls
-          export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig
+          export PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig
           ./configure \
             --prefix=/c/emacs-${EMACS_VERSION} \
             --with-gnutls \
@@ -139,12 +119,12 @@ jobs:
             --with-rsvg \
             --with-xml2 \
             --with-zlib \
+            --with-json \
             --without-dbus \
             --without-imagemagick \
             --without-native-compilation \
+            --without-tree-sitter \
             --without-compress-install
-          # 注意: 28.2 没有 tree-sitter 选项, 不用加 --without-tree-sitter,
-          # 加了 configure 会报 unrecognized option
 
       - name: Build
         working-directory: emacs-${{ env.EMACS_VERSION }}
@@ -163,9 +143,9 @@ jobs:
       - name: Collect runtime DLLs
         run: |
           set -e
-          # 只拷 emacs.exe 实际依赖的 MinGW64 DLL, 不把整个 mingw64/bin 打进去
+          # 只拷 emacs.exe 实际依赖的 UCRT64 DLL, 不把整个 ucrt64/bin 打进去
           cd /c/emacs-${EMACS_VERSION}/bin
-          for dll in $(ldd emacs.exe | grep -o '/mingw64/bin/[^ ]*\.dll'); do
+          for dll in $(ldd emacs.exe | grep -o '/ucrt64/bin/[^ ]*\.dll'); do
             cp -v "$dll" . || true
           done
           ls -lh
@@ -184,7 +164,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: emacs-28.2-windows-x64-gui
-          path: emacs-28.2-windows-x64-gui.zip
+          name: emacs-31.1-windows-x64-gui
+          path: emacs-31.1-windows-x64-gui.zip
           if-no-files-found: error
           retention-days: 30
